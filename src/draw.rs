@@ -1,9 +1,11 @@
-use glam::{Affine2, Vec2};
+use glam::{Affine2, IVec2, Vec2};
 use palette::{
     Srgb, Srgba,
     luma::{Luma, Lumaa},
 };
 use web_sys::CanvasRenderingContext2d;
+
+use hrcviz2::Rect;
 
 use crate::input::{MouseButton, MouseState, register_input_handlers};
 
@@ -18,33 +20,6 @@ pub fn luma(l: f32) -> Luma {
 }
 pub fn lumaa(l: f32, a: f32) -> Lumaa {
     Lumaa::new(l, a)
-}
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Rect {
-    pub min: Vec2,
-    pub max: Vec2,
-}
-impl Rect {
-    pub fn min_max(min: Vec2, max: Vec2) -> Self {
-        Self { min, max }
-    }
-    pub fn bounding(a: Vec2, b: Vec2) -> Self {
-        Self {
-            min: a.min(b),
-            max: a.max(b),
-        }
-    }
-    pub fn center_size(center: Vec2, size: Vec2) -> Self {
-        let half_size = size * 0.5;
-        Self {
-            min: center - half_size,
-            max: center + half_size,
-        }
-    }
-    pub fn size(&self) -> Vec2 {
-        self.max - self.min
-    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -200,7 +175,20 @@ impl DrawContext {
         if self.active_point == Some(display_point) {
             let new_point = self.transform.inverse().transform_point2(mouse_pos);
             *point = new_point;
-            self.active_point = Some(self.transform.transform_point2(new_point));
+            self.active_point = Some(self.transform.transform_point2(*point));
+        }
+    }
+
+    pub fn responsive_grid_point(&mut self, point: &mut IVec2) {
+        let display_point = self.transform.transform_point2(point.as_vec2());
+        let mouse_pos = self.mouse.position();
+        if self.mouse.just_pressed(MouseButton::Left) && display_point.distance(mouse_pos) < 10.0 {
+            self.active_point = Some(display_point);
+        }
+        if self.active_point == Some(display_point) {
+            let new_point = self.transform.inverse().transform_point2(mouse_pos);
+            *point = new_point.round().as_ivec2();
+            self.active_point = Some(self.transform.transform_point2(point.as_vec2()));
         }
     }
 
