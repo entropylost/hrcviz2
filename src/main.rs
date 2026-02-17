@@ -15,16 +15,30 @@ pub mod input;
 
 fn get_transmission_recursive(
     frustrum: Frustrum,
-    emitter: Vec2,
+    emitter: IVec2,
+    merging_scheme: &MergingSchema,
     mut ctx: Option<&mut DrawContext>,
 ) -> f32 {
-    let source = Polygon::from(Rect::center_size(emitter, Vec2::splat(1.0)));
+    let source = Polygon::from(Rect::center_size(emitter.as_vec2(), Vec2::splat(1.0)));
     let intersection_area = source
         .intersect(&frustrum.polygon(1, 64 / frustrum.size))
         .area();
     if intersection_area < 0.000001 {
         return 0.0;
     }
+
+    let Some(scheme) = merging_scheme.get(&MergingSchemeKey {
+        even: frustrum.parity() != 0,
+        size: frustrum.size,
+        index: frustrum.index,
+    }) else {
+        return 0.0;
+    };
+
+    let adjustment = scheme
+        .get(&(emitter - frustrum.focus))
+        .copied()
+        .unwrap_or(0.0);
 
     // odd merging
     if frustrum.parity() == 0 {
@@ -35,21 +49,23 @@ fn get_transmission_recursive(
                 .stroke("yellow");
         }
 
-        let traced_intersection_area = source.intersect(&traced_frustrum).area();
+        // let traced_intersection_area = source.intersect(&traced_frustrum).area();
 
         let mut merged_radiance = 0.0;
         for (f, w) in merge_odd(frustrum) {
-            merged_radiance += get_transmission_recursive(f, emitter, ctx.as_deref_mut()) * w;
+            merged_radiance +=
+                get_transmission_recursive(f, emitter, merging_scheme, ctx.as_deref_mut()) * w;
         }
 
-        transmission(frustrum.focus.as_vec2(), emitter) * traced_intersection_area + merged_radiance
+        adjustment + merged_radiance
+        // transmission(frustrum.focus.as_vec2(), emitter) * traced_intersection_area + merged_radiance
     } else {
         if let Some(ref mut ctx) = ctx {
             ctx.polygon(&frustrum.polygon(1, 2).vertices)
                 .fill(rgba(0.0, 1.0, 1.0, 0.1))
                 .stroke("cyan");
         }
-
+        /*
         let traced_frustrum = frustrum.polygon(1, 3);
         let traced_intersection_area = source.intersect(&traced_frustrum).area();
         if traced_intersection_area > 0.000001 {
@@ -61,14 +77,15 @@ fn get_transmission_recursive(
             }
 
             return transmission(frustrum.focus.as_vec2(), emitter) * actual_area;
-        }
+        }*/
 
         let mut merged_radiance = 0.0;
         for (f, w) in merge_even(frustrum) {
-            merged_radiance += get_transmission_recursive(f, emitter, ctx.as_deref_mut()) * w;
+            merged_radiance +=
+                get_transmission_recursive(f, emitter, merging_scheme, ctx.as_deref_mut()) * w;
         }
 
-        merged_radiance
+        adjustment + merged_radiance
     }
 }
 
@@ -98,10 +115,8 @@ fn run() -> Option<()> {
 
     let mut size_control = IVec2::new(1, 0);
 
-    let merging_scheme = postcard::from_bytes::<HashMap<MergingSchemeKey, MergingScheme>>(
-        include_bytes!("../merging_scheme.bin"),
-    )
-    .unwrap();
+    let merging_scheme =
+        postcard::from_bytes::<MergingSchema>(include_bytes!("../merging_scheme.bin")).unwrap();
 
     anim_loop(move || {
         let window_width = window().unwrap().inner_width().unwrap().as_f64().unwrap() as u32;
@@ -117,7 +132,7 @@ fn run() -> Option<()> {
 
         ctx.clear();
 
-        size_control.x = size_control.x.clamp(1, 6);
+        size_control.x = size_control.x.clamp(1, 5);
         let frustrum_size = 2_i32.pow(size_control.x as u32);
         size_control.y = size_control.y.clamp(-frustrum_size, frustrum_size - 1);
 
@@ -130,10 +145,11 @@ fn run() -> Option<()> {
 
         ctx.circle(probe.as_vec2(), 0.2).fill("red");
 
+        /*
         ctx.responsive_point(&mut emitter);
         ctx.circle(emitter, 0.2).fill("blue");
 
-        /*let emitter2 = emitter.as_ivec2();
+        let emitter2 = emitter.as_ivec2();
         for cell in range2d(emitter2 - IVec2::splat(32), emitter2 + IVec2::Y * 16) {
             let transmission = get_transmission_recursive(
                 Frustrum {
@@ -141,11 +157,12 @@ fn run() -> Option<()> {
                     size: 1,
                     index: 0,
                 },
-                emitter,
-                if cell == probe { Some(&mut ctx) } else { None },
+                emitter2,
+                &merging_scheme,
+                None, // if cell == probe { Some(&mut ctx) } else { None },
             );
             ctx.rect(Rect::center_size(cell.as_vec2(), Vec2::splat(1.0)))
-                .fill(lumaa(10.0 * transmission, 0.2));
+                .fill(lumaa(10.0 * transmission, 1.0));
         }*/
 
         // let frustrum_size = 4;
@@ -156,6 +173,19 @@ fn run() -> Option<()> {
             index: frustrum_index,
         };
 
+        if let Some(merging_scheme) = merging_scheme.get(&MergingSchemeKey {
+            even: true,
+            size: frustrum_size,
+            index: frustrum_index,
+        }) {
+            for (pos, weight) in merging_scheme {
+                let cell = pos + probe;
+                ctx.rect(Rect::center_size(cell.as_vec2(), Vec2::splat(1.0)))
+                    .fill(luma(weight * 20.0));
+            }
+        }
+
+        /*
         let mut pixel_weights = HashMap::new();
 
         let next_frustrums = merge_even(target_frustrum);
@@ -198,17 +228,26 @@ fn run() -> Option<()> {
                 .fill(rgba(1.0, 0.0, 1.0, 0.3))
                 .stroke("magenta");
         }
+         */
 
-        ctx.polygon(&target_frustrum.polygon(1, 2).vertices)
-            // .fill(rgba(1.0, 1.0, 0.0, 0.3))
-            .stroke("yellow");
+        for poly in merge_even_errors(target_frustrum, 4) {
+            ctx.polygon(&poly.vertices)
+                //.fill(rgba(1.0, 0.0, 1.0, 0.))
+                .stroke("yellow");
+        }
 
+        /*ctx.polygon(&target_frustrum.polygon(1, 3).vertices)
+        // .fill(rgba(1.0, 1.0, 0.0, 0.3))
+        .stroke("yellow");*/
+
+        /*
         for (frustrum, _weight) in &next_frustrums {
             ctx.circle(frustrum.focus.as_vec2(), 0.1).fill("magenta");
             ctx.polygon(&frustrum.polygon(1, 2).vertices)
                 // .fill(rgba(0.0, 1.0, 1.0, 0.05))
                 .stroke(rgba(0.0, 1.0, 1.0, 0.3));
         }
+         */
 
         ctx.finish();
     });

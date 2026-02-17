@@ -230,6 +230,8 @@ pub fn merge_even_errors(frustrum: Frustrum, ext: i32) -> [Polygon; 2] {
     ]
 }
 
+pub type MergingSchema = HashMap<MergingSchemeKey, MergingScheme>;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct MergingSchemeKey {
     pub even: bool,
@@ -258,8 +260,8 @@ pub fn add_frustrum_weights(
     }
 }
 
-pub fn generate_merging_scheme(levels: u32) -> HashMap<MergingSchemeKey, MergingScheme> {
-    let mut merging_scheme = HashMap::<MergingSchemeKey, MergingScheme>::new();
+pub fn generate_merging_scheme(levels: u32) -> MergingSchema {
+    let mut merging_scheme = HashMap::new();
     for level in 0..levels {
         let frustrum_size = 2_i32.pow(level);
         for index in -frustrum_size..frustrum_size {
@@ -284,9 +286,9 @@ pub fn generate_merging_scheme(levels: u32) -> HashMap<MergingSchemeKey, Merging
                 );
             }
             let mask = merge_odd_errors(frustrum);
-            pixel_weights.retain(|i, _| {
+            pixel_weights.retain(|i, w| {
                 let rect = Polygon::from(Rect::center_size(i.as_vec2(), Vec2::splat(1.0)));
-                rect.intersect(&mask).area() > 0.0001
+                rect.intersect(&mask).area() > 0.0001 && w.abs() > 0.00001
             });
             merging_scheme.insert(
                 MergingSchemeKey {
@@ -313,9 +315,9 @@ pub fn generate_merging_scheme(levels: u32) -> HashMap<MergingSchemeKey, Merging
                 );
             }
             let mask = merge_even_errors(frustrum, 4);
-            pixel_weights.retain(|i, _| {
+            pixel_weights.retain(|i, w| {
                 let rect = Polygon::from(Rect::center_size(i.as_vec2(), Vec2::splat(1.0)));
-                mask.iter().any(|mask| rect.intersect(mask).area() > 0.0001)
+                mask.iter().any(|mask| rect.intersect(mask).area() > 0.0001) && w.abs() > 0.00001
             });
             merging_scheme.insert(
                 MergingSchemeKey {
