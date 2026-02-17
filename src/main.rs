@@ -124,6 +124,78 @@ fn transmission(probe: Vec2, emitter: Vec2) -> f32 {
     1.0 / distance
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+struct Frustrum {
+    focus: IVec2,
+    size: i32,
+    index: i32,
+}
+impl Frustrum {
+    fn lower_dir(&self) -> IVec2 {
+        IVec2::new(self.size, self.index)
+    }
+    fn upper_dir(&self) -> IVec2 {
+        IVec2::new(self.size, self.index + 1)
+    }
+    fn polygon(&self, min: i32, max: i32) -> Polygon {
+        Polygon::new(
+            &[
+                self.focus + self.lower_dir() * min,
+                self.focus + self.lower_dir() * max,
+                self.focus + self.upper_dir() * max,
+                self.focus + self.upper_dir() * min,
+            ]
+            .map(|v| v.as_vec2()),
+        )
+    }
+    fn parity(&self) -> i32 {
+        (self.focus.x / self.size).rem_euclid(2)
+    }
+}
+
+fn merge_odd(frustrum: Frustrum) -> [(Frustrum, f32); 2] {
+    let next_size = frustrum.size * 2;
+    [
+        Frustrum {
+            focus: frustrum.focus,
+            size: next_size,
+            index: frustrum.index * 2,
+        },
+        Frustrum {
+            focus: frustrum.focus,
+            size: next_size,
+            index: frustrum.index * 2 + 1,
+        },
+    ]
+    .map(|f| (f, 1.0))
+}
+fn merge_even(frustrum: Frustrum) -> [(Frustrum, f32); 4] {
+    let next_size = frustrum.size * 2;
+    [
+        Frustrum {
+            focus: frustrum.focus - frustrum.lower_dir(),
+            size: next_size,
+            index: frustrum.index * 2,
+        },
+        Frustrum {
+            focus: frustrum.focus - frustrum.upper_dir(),
+            size: next_size,
+            index: frustrum.index * 2 + 1,
+        },
+        Frustrum {
+            focus: frustrum.focus + frustrum.lower_dir(),
+            size: next_size,
+            index: frustrum.index * 2,
+        },
+        Frustrum {
+            focus: frustrum.focus + frustrum.upper_dir(),
+            size: next_size,
+            index: frustrum.index * 2 + 1,
+        },
+    ]
+    .map(|f| (f, 0.5))
+}
+
 fn run() -> Option<()> {
     let document = window()?.document()?;
 
@@ -186,117 +258,65 @@ fn run() -> Option<()> {
             }
         };
 
-        fn get_frustrum_polygon(probe: IVec2, size: i32, index: i32, extent: i32) -> Polygon {
-            let lower_dir = IVec2::new(size, index);
-            let upper_dir = IVec2::new(size, index + 1);
-
-            Polygon::new(
-                &[
-                    probe + lower_dir,
-                    probe + lower_dir * extent,
-                    probe + upper_dir * extent,
-                    probe + upper_dir,
-                ]
-                .map(|v| v.as_vec2()),
-            )
-        }
-
         fn get_transmission_recursive(
-            probe: IVec2,
+            frustrum: Frustrum,
             emitter: Vec2,
-            frustrum_size: i32,
-            frustrum_index: i32,
             mut ctx: Option<&mut DrawContext>,
         ) -> f32 {
-            let source = Polygon::from(Rect::center_size(emitter, Vec2::splat(0.01)));
-            let full_frustrum =
-                get_frustrum_polygon(probe, frustrum_size, frustrum_index, 64 / frustrum_size);
-            let intersection_area = source.intersect(&full_frustrum).area();
+            let source = Polygon::from(Rect::center_size(emitter, Vec2::splat(1.0)));
+            let intersection_area = source
+                .intersect(&frustrum.polygon(1, 64 / frustrum.size))
+                .area();
             if intersection_area < 0.000001 {
                 return 0.0;
             }
 
             // odd merging
-            if (probe.x / frustrum_size).rem_euclid(2) == 0 {
-                let traced_frustrum = get_frustrum_polygon(probe, frustrum_size, frustrum_index, 2);
+            if frustrum.parity() == 0 {
+                let traced_frustrum = frustrum.polygon(1, 2);
                 if let Some(ref mut ctx) = ctx {
                     ctx.polygon(&traced_frustrum.vertices)
-                        .fill(rgba(1.0, 1.0, 0.0, 0.3))
+                        .fill(rgba(1.0, 1.0, 0.0, 0.1))
                         .stroke("yellow");
                 }
 
                 let traced_intersection_area = source.intersect(&traced_frustrum).area();
-                let top = get_transmission_recursive(
-                    probe,
-                    emitter,
-                    frustrum_size * 2,
-                    frustrum_index * 2,
-                    ctx.as_deref_mut(),
-                );
-                let bottom = get_transmission_recursive(
-                    probe,
-                    emitter,
-                    frustrum_size * 2,
-                    frustrum_index * 2 + 1,
-                    ctx,
-                );
-                transmission(probe.as_vec2(), emitter) * traced_intersection_area + top + bottom
+
+                let mut merged_radiance = 0.0;
+                for (f, w) in merge_odd(frustrum) {
+                    merged_radiance +=
+                        get_transmission_recursive(f, emitter, ctx.as_deref_mut()) * w;
+                }
+
+                transmission(frustrum.focus.as_vec2(), emitter) * traced_intersection_area
+                    + merged_radiance
             } else {
                 if let Some(ref mut ctx) = ctx {
-                    ctx.polygon(&full_frustrum.vertices)
-                        .fill(rgba(0.0, 1.0, 1.0, 0.3))
+                    ctx.polygon(&frustrum.polygon(1, 2).vertices)
+                        .fill(rgba(0.0, 1.0, 1.0, 0.1))
                         .stroke("cyan");
                 }
 
-                let traced_frustrum = get_frustrum_polygon(probe, frustrum_size, frustrum_index, 3);
+                let traced_frustrum = frustrum.polygon(1, 3);
                 let traced_intersection_area = source.intersect(&traced_frustrum).area();
                 if traced_intersection_area > 0.000001 {
-                    let actual_area = source
-                        .intersect(&get_frustrum_polygon(
-                            probe,
-                            frustrum_size,
-                            frustrum_index,
-                            4,
-                        ))
-                        .area();
+                    let actual_area = source.intersect(&frustrum.polygon(1, 4)).area();
                     if let Some(ref mut ctx) = ctx {
                         ctx.polygon(&traced_frustrum.vertices)
-                            .fill(rgba(1.0, 0.0, 0.0, 0.3))
+                            .fill(rgba(1.0, 0.0, 0.0, 0.1))
                             .stroke("red");
                     }
 
-                    return transmission(probe.as_vec2(), emitter) * actual_area;
+                    return transmission(frustrum.focus.as_vec2(), emitter) * actual_area;
                 }
 
-                let closer_top = get_transmission_recursive(
-                    probe - IVec2::new(frustrum_size, frustrum_index),
-                    emitter,
-                    frustrum_size * 2,
-                    frustrum_index * 2,
-                    ctx.as_deref_mut(),
-                );
-                let closer_bottom = get_transmission_recursive(
-                    probe - IVec2::new(frustrum_size, frustrum_index + 1),
-                    emitter,
-                    frustrum_size * 2,
-                    frustrum_index * 2 + 1,
-                    ctx.as_deref_mut(),
-                );
-                let further_top = get_transmission_recursive(
-                    probe + IVec2::new(frustrum_size, frustrum_index),
-                    emitter,
-                    frustrum_size * 2,
-                    frustrum_index * 2,
-                    ctx.as_deref_mut(),
-                );
-                let further_bottom = get_transmission_recursive(
-                    probe + IVec2::new(frustrum_size, frustrum_index + 1),
-                    emitter,
-                    frustrum_size * 2,
-                    frustrum_index * 2 + 1,
-                    ctx,
-                );
-                (closer_top + closer_bottom + further_top + further_bottom) / 2.0
+                let mut merged_radiance = 0.0;
+                for (f, w) in merge_even(frustrum) {
+                    merged_radiance +=
+                        get_transmission_recursive(f, emitter, ctx.as_deref_mut()) * w;
+                }
+
+                merged_radiance
             }
         }
 
@@ -306,110 +326,62 @@ fn run() -> Option<()> {
         let emitter2 = emitter.as_ivec2();
         for cell in range2d(emitter2 - IVec2::splat(32), emitter2 + IVec2::Y * 16) {
             let transmission = get_transmission_recursive(
-                cell, emitter, 1, 0,
-                None, // if cell == probe { Some(&mut ctx) } else { None },
+                Frustrum {
+                    focus: cell,
+                    size: 1,
+                    index: 0,
+                },
+                emitter,
+                if cell == probe { Some(&mut ctx) } else { None },
             );
             ctx.rect(Rect::center_size(cell.as_vec2(), Vec2::splat(1.0)))
-                .fill(lumaa(10.0 * 100.0 * 100.0 * transmission, 1.0));
+                .fill(lumaa(10.0 * transmission, 0.2));
         }
 
         /*
         let frustrum_size = 8;
-        let extent = 6;
-        let target_frustrum = get_frustrum_polygon(probe, frustrum_size, 0, 2 * extent);
+        let extent = IVec2::new(2, 6);
+        let target_frustrum = get_frustrum_polygon(probe, frustrum_size, 0, IVec2::new(2, 12));
+
+        let weighted_frustrum = |offset: IVec2, index: i32, weight: f32| {
+            (
+                probe + offset,
+                get_frustrum_polygon(probe + offset, 2 * frustrum_size, index, extent),
+                weight,
+            )
+        };
 
         let next_frustrums = [
-            (
-                probe + IVec2::new(-frustrum_size, 0),
-                get_frustrum_polygon(
-                    probe + IVec2::new(-frustrum_size, 0),
-                    2 * frustrum_size,
-                    0,
-                    extent,
-                ),
-            ),
-            (
-                probe + IVec2::new(-frustrum_size, -1),
-                get_frustrum_polygon(
-                    probe + IVec2::new(-frustrum_size, -1),
-                    2 * frustrum_size,
-                    1,
-                    extent,
-                ),
-            ),
-            (
-                probe + IVec2::new(frustrum_size, 0),
-                get_frustrum_polygon(
-                    probe + IVec2::new(frustrum_size, 0),
-                    2 * frustrum_size,
-                    0,
-                    extent,
-                ),
-            ),
-            (
-                probe + IVec2::new(frustrum_size, 1),
-                get_frustrum_polygon(
-                    probe + IVec2::new(frustrum_size, 1),
-                    2 * frustrum_size,
-                    1,
-                    extent,
-                ),
-            ),
+            weighted_frustrum(IVec2::new(-frustrum_size, 0), 0, 0.5),
+            weighted_frustrum(IVec2::new(-frustrum_size, -1), 1, 0.5),
+            weighted_frustrum(IVec2::new(frustrum_size, 0), 0, 0.5),
+            weighted_frustrum(IVec2::new(frustrum_size, 1), 1, 0.5),
         ];
-        for (focus, frustrum) in &next_frustrums {
-            add_frustrum_weights(*focus, 10.0, frustrum);
+        for (focus, frustrum, weight) in &next_frustrums {
+            add_frustrum_weights(*focus, *weight, frustrum);
         }
 
-        add_frustrum_weights(probe, -20.0, &target_frustrum);
-
-        /*
-        for active_frustrum in -8..8 {
-            let polygon = get_frustrum_polygon(probe, 8, active_frustrum, 4);
-
-            ctx.polygon(&polygon.vertices)
-                .fill(rgba(0.0, 1.0, 1.0, 0.3))
-                .stroke("cyan");
-
-            add_frustrum_weights(probe, 5.0, &polygon);
-
-            /*let aabb = polygon.bounding_rect();
-            // ctx.rect(aabb).stroke("blue");
-
-            let grid_offset = Vec2::splat(0.0);
-            let start = (aabb.min - grid_offset).floor().as_ivec2();
-            let end = (aabb.max - grid_offset).ceil().as_ivec2();
-            for cell in range2d(start, end + 1) {
-                let center = cell.as_vec2() + grid_offset;
-                let rect = Polygon::from(Rect::center_size(center, Vec2::splat(1.0)));
-                let intersection = rect.intersect(&polygon);
-                if intersection.area() > 0.001 {
-                    ctx.polygon(&intersection.vertices)
-                        .fill(luma(intersection.area()))
-                        .stroke("white");
-                    // ctx.rect(Rect::center_size(center, Vec2::splat(1.0)))
-                    // .fill(lumaa(intersection.area(), 1.0))
-                    //     .stroke("white");
-                }
-            }
-            */
-        } */
+        add_frustrum_weights(probe, -1.0, &target_frustrum);
 
         for (cell, weight) in pixel_weights {
-            ctx.rect(Rect::center_size(cell.as_vec2(), Vec2::splat(1.0)))
-                .fill(luma(weight.abs()));
+            let a = ctx
+                .rect(Rect::center_size(cell.as_vec2(), Vec2::splat(1.0)))
+                .fill(luma(weight.abs() * 20.0));
+            if weight.abs() > 1.0 / 1000.0 {
+                a.stroke("red");
+            }
         }
 
         ctx.polygon(&target_frustrum.vertices)
             // .fill(rgba(1.0, 1.0, 0.0, 0.3))
             .stroke("yellow");
 
-        for (focus, frustrum) in &next_frustrums {
+        for (focus, frustrum, _) in &next_frustrums {
             ctx.circle(focus.as_vec2(), 0.1).fill("magenta");
             ctx.polygon(&frustrum.vertices)
-                .fill(rgba(0.0, 1.0, 1.0, 0.1))
-                .stroke("cyan");
-        }
-        */
+                // .fill(rgba(0.0, 1.0, 1.0, 0.05))
+                .stroke(rgba(0.0, 1.0, 1.0, 0.3));
+        } */
 
         ctx.finish();
     });

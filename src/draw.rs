@@ -97,12 +97,12 @@ pub struct Path<'a> {
     context: &'a mut DrawContext,
 }
 impl Path<'_> {
-    pub fn fill(&mut self, color: impl Into<CanvasColor>) -> &mut Self {
+    pub fn fill(self, color: impl Into<CanvasColor>) -> Self {
         self.context.ctx.set_fill_style_str(&color.into().0);
         self.context.ctx.fill();
         self
     }
-    pub fn stroke(&mut self, color: impl Into<CanvasColor>) -> &mut Self {
+    pub fn stroke(self, color: impl Into<CanvasColor>) -> Self {
         self.context.ctx.set_stroke_style_str(&color.into().0);
         self.context.ctx.stroke();
         self
