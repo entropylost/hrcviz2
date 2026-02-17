@@ -215,15 +215,15 @@ pub fn merge_even(frustrum: Frustrum) -> [(Frustrum, f32); 4] {
     .map(|f| (f, 0.5))
 }
 pub fn merge_odd_errors(frustrum: Frustrum) -> Polygon {
-    frustrum.polygon(1, 2)
+    frustrum.polygon(2, 4)
 }
 
 pub fn merge_even_errors(frustrum: Frustrum, ext: i32) -> [Polygon; 2] {
     let mid_dir = frustrum.lower_dir() + frustrum.upper_dir();
-    let lower = frustrum.focus + frustrum.lower_dir() + mid_dir;
-    let upper = frustrum.focus + frustrum.upper_dir() + mid_dir;
+    let lower = frustrum.focus + frustrum.lower_dir() + 2 * mid_dir;
+    let upper = frustrum.focus + frustrum.upper_dir() + 2 * mid_dir;
     [
-        frustrum.polygon(1, 3),
+        frustrum.polygon(2, 5),
         Polygon::new(
             &[upper, lower, lower + mid_dir * ext, upper + mid_dir * ext].map(|v| v.as_vec2()),
         ),
@@ -274,21 +274,21 @@ pub fn generate_merging_scheme(levels: u32) -> MergingSchema {
             add_frustrum_weights(
                 frustrum.focus,
                 1.0,
-                &frustrum.polygon(1, 12),
+                &frustrum.polygon(2, 6),
                 &mut pixel_weights,
             );
             for (frustrum, weight) in merge_odd(frustrum) {
                 add_frustrum_weights(
                     frustrum.focus,
                     -weight,
-                    &frustrum.polygon(1, 7),
+                    &frustrum.polygon(2, 3),
                     &mut pixel_weights,
                 );
             }
             let mask = merge_odd_errors(frustrum);
             pixel_weights.retain(|i, w| {
                 let rect = Polygon::from(Rect::center_size(i.as_vec2(), Vec2::splat(1.0)));
-                rect.intersect(&mask).area() > 0.0001 && w.abs() > 0.00001
+                rect.intersect(&mask).area() > 0.0 // && w.abs() > 0.00001
             });
             merging_scheme.insert(
                 MergingSchemeKey {
@@ -303,21 +303,21 @@ pub fn generate_merging_scheme(levels: u32) -> MergingSchema {
             add_frustrum_weights(
                 frustrum.focus,
                 1.0,
-                &frustrum.polygon(1, 12),
+                &frustrum.polygon(2, 14),
                 &mut pixel_weights,
             );
             for (frustrum, weight) in merge_even(frustrum) {
                 add_frustrum_weights(
                     frustrum.focus,
                     -weight,
-                    &frustrum.polygon(1, 7),
+                    &frustrum.polygon(2, 8),
                     &mut pixel_weights,
                 );
             }
-            let mask = merge_even_errors(frustrum, 4);
+            let mask = merge_even_errors(frustrum, 2);
             pixel_weights.retain(|i, w| {
                 let rect = Polygon::from(Rect::center_size(i.as_vec2(), Vec2::splat(1.0)));
-                mask.iter().any(|mask| rect.intersect(mask).area() > 0.0001) && w.abs() > 0.00001
+                mask.iter().any(|mask| rect.intersect(mask).area() > 0.0) // && w.abs() > 0.00001
             });
             merging_scheme.insert(
                 MergingSchemeKey {

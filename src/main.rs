@@ -145,12 +145,11 @@ fn run() -> Option<()> {
 
         ctx.circle(probe.as_vec2(), 0.2).fill("red");
 
-        /*
         ctx.responsive_point(&mut emitter);
         ctx.circle(emitter, 0.2).fill("blue");
 
         let emitter2 = emitter.as_ivec2();
-        for cell in range2d(emitter2 - IVec2::splat(32), emitter2 + IVec2::Y * 16) {
+        for cell in range2d(emitter2 - IVec2::splat(64), emitter2 + IVec2::Y * 16) {
             let transmission = get_transmission_recursive(
                 Frustrum {
                     focus: cell,
@@ -163,7 +162,7 @@ fn run() -> Option<()> {
             );
             ctx.rect(Rect::center_size(cell.as_vec2(), Vec2::splat(1.0)))
                 .fill(lumaa(10.0 * transmission, 1.0));
-        }*/
+        }
 
         // let frustrum_size = 4;
         // let extent = IVec2::new(2, 6);
@@ -173,7 +172,7 @@ fn run() -> Option<()> {
             index: frustrum_index,
         };
 
-        if let Some(merging_scheme) = merging_scheme.get(&MergingSchemeKey {
+        /*if let Some(merging_scheme) = merging_scheme.get(&MergingSchemeKey {
             even: true,
             size: frustrum_size,
             index: frustrum_index,
@@ -183,7 +182,7 @@ fn run() -> Option<()> {
                 ctx.rect(Rect::center_size(cell.as_vec2(), Vec2::splat(1.0)))
                     .fill(luma(weight * 20.0));
             }
-        }
+        }*/
 
         /*
         let mut pixel_weights = HashMap::new();
@@ -193,7 +192,7 @@ fn run() -> Option<()> {
             add_frustrum_weights(
                 frustrum.focus,
                 *weight,
-                &frustrum.polygon(1, 7),
+                &frustrum.polygon(2, 8),
                 &mut pixel_weights,
             );
         }
@@ -201,17 +200,15 @@ fn run() -> Option<()> {
         add_frustrum_weights(
             probe,
             -1.0,
-            &target_frustrum.polygon(1, 12),
+            &target_frustrum.polygon(2, 14),
             &mut pixel_weights,
         );
-
-        let error_polys = merge_even_errors(target_frustrum, 4);
 
         for (cell, weight) in pixel_weights {
             let a = ctx
                 .rect(Rect::center_size(cell.as_vec2(), Vec2::splat(1.0)))
                 .fill(luma(weight.abs() * 20.0));
-            let is_allowed_error = error_polys.iter().any(|poly| {
+            /*let is_allowed_error = error_polys.iter().any(|poly| {
                 Polygon::from(Rect::center_size(cell.as_vec2(), Vec2::splat(1.0)))
                     .intersect(poly)
                     .area()
@@ -219,16 +216,8 @@ fn run() -> Option<()> {
             });
             if is_allowed_error {
                 a.stroke("red");
-            }
+            }*/
         }
-
-        for poly in &error_polys {
-            debug!("Area: {}", poly.area());
-            ctx.polygon(&poly.vertices)
-                .fill(rgba(1.0, 0.0, 1.0, 0.3))
-                .stroke("magenta");
-        }
-         */
 
         for poly in merge_even_errors(target_frustrum, 4) {
             ctx.polygon(&poly.vertices)
@@ -236,18 +225,16 @@ fn run() -> Option<()> {
                 .stroke("yellow");
         }
 
-        /*ctx.polygon(&target_frustrum.polygon(1, 3).vertices)
-        // .fill(rgba(1.0, 1.0, 0.0, 0.3))
-        .stroke("yellow");*/
+        ctx.polygon(&target_frustrum.polygon(2, 4).vertices)
+            // .fill(rgba(1.0, 1.0, 0.0, 0.3))
+            .stroke("yellow");
 
-        /*
         for (frustrum, _weight) in &next_frustrums {
             ctx.circle(frustrum.focus.as_vec2(), 0.1).fill("magenta");
-            ctx.polygon(&frustrum.polygon(1, 2).vertices)
-                // .fill(rgba(0.0, 1.0, 1.0, 0.05))
+            ctx.polygon(&frustrum.polygon(2, 4).vertices)
+                .fill(rgba(0.0, 1.0, 1.0, 0.05))
                 .stroke(rgba(0.0, 1.0, 1.0, 0.3));
-        }
-         */
+        }*/
 
         ctx.finish();
     });
