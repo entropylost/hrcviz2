@@ -1,0 +1,26 @@
+:root {
+    --background: #222;
+    --line: #333;
+}
+
+html {
+    background: var(--background);
+}
+
+body {
+    color: #eee;
+    font-family: "FiraCode NF";
+    margin: 0;
+    background-size: 20px 20px;
+    background-image: radial-gradient(circle, #333 1px, var(--background) 1px);
+    background-position: -10px -10px;
+    /*background-image:
+        linear-gradient(to right, var(--line) 2px, transparent 1px),
+        linear-gradient(to bottom, var(--line) 2px, transparent 1px);
+    background-position: -1px -1px;*/
+
+    position: relative;
+    width: 100vw;
+    height: 100vh;
+    overflow: hidden;
+}
