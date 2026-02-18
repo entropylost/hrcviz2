@@ -21,7 +21,7 @@ fn get_transmission_recursive(
 ) -> f32 {
     let source = Polygon::from(Rect::center_size(emitter.as_vec2(), Vec2::splat(1.0)));
     let intersection_area = source
-        .intersect(&frustrum.polygon(1, 64 / frustrum.size))
+        .intersect(&frustrum.polygon(2, 128 / frustrum.size))
         .area();
     if intersection_area < 0.000001 {
         return 0.0;
@@ -42,7 +42,7 @@ fn get_transmission_recursive(
 
     // odd merging
     if frustrum.parity() == 0 {
-        let traced_frustrum = frustrum.polygon(1, 2);
+        let traced_frustrum = frustrum.polygon(2, 4);
         if let Some(ref mut ctx) = ctx {
             ctx.polygon(&traced_frustrum.vertices)
                 .fill(rgba(1.0, 1.0, 0.0, 0.1))
@@ -61,10 +61,12 @@ fn get_transmission_recursive(
         // transmission(frustrum.focus.as_vec2(), emitter) * traced_intersection_area + merged_radiance
     } else {
         if let Some(ref mut ctx) = ctx {
-            ctx.polygon(&frustrum.polygon(1, 2).vertices)
+            ctx.polygon(&frustrum.polygon(2, 4).vertices)
                 .fill(rgba(0.0, 1.0, 1.0, 0.1))
                 .stroke("cyan");
         }
+
+        // return transmission(frustrum.focus.as_vec2(), emitter.as_vec2()) * intersection_area;
         /*
         let traced_frustrum = frustrum.polygon(1, 3);
         let traced_intersection_area = source.intersect(&traced_frustrum).area();
@@ -141,13 +143,6 @@ fn run() -> Option<()> {
         ctx.responsive_grid_point(&mut size_control);
         ctx.circle(size_control.as_vec2(), 0.2).fill("green");
 
-        ctx.responsive_grid_point(&mut probe);
-
-        ctx.circle(probe.as_vec2(), 0.2).fill("red");
-
-        ctx.responsive_point(&mut emitter);
-        ctx.circle(emitter, 0.2).fill("blue");
-
         let emitter2 = emitter.as_ivec2();
         for cell in range2d(emitter2 - IVec2::splat(64), emitter2 + IVec2::Y * 16) {
             let transmission = get_transmission_recursive(
@@ -163,6 +158,24 @@ fn run() -> Option<()> {
             ctx.rect(Rect::center_size(cell.as_vec2(), Vec2::splat(1.0)))
                 .fill(lumaa(10.0 * transmission, 1.0));
         }
+
+        ctx.responsive_grid_point(&mut probe);
+
+        ctx.circle(probe.as_vec2(), 0.2).fill("red");
+
+        ctx.responsive_point(&mut emitter);
+        ctx.circle(emitter, 0.2).fill("blue");
+
+        get_transmission_recursive(
+            Frustrum {
+                focus: probe,
+                size: 1,
+                index: 0,
+            },
+            emitter2,
+            &merging_scheme,
+            Some(&mut ctx),
+        );
 
         // let frustrum_size = 4;
         // let extent = IVec2::new(2, 6);
