@@ -111,6 +111,11 @@ impl Polygon {
         }
         result
     }
+    // TODO: This is unstable.
+    pub fn contains(&self, point: Vec2) -> bool {
+        self.iter_half_planes()
+            .all(|plane| (point - plane.point).dot(plane.normal) >= 0.0)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -139,8 +144,36 @@ impl HalfPlane {
 }
 
 pub fn transmission(probe: Vec2, emitter: Vec2) -> f32 {
-    let distance = probe.distance(emitter).max(1.0);
+    let distance = (probe.x - emitter.x).abs().max(1.0);
     1.0 / distance
+    // 1.0
+    // let distance = probe.distance(emitter).max(1.0);
+    // 1.0 / distance
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct LinearFrustrum {
+    // offset towards bottom
+    pub focus: Vec2,
+    pub size: i32,
+    pub index: f32,
+}
+impl LinearFrustrum {
+    pub fn dir(&self) -> Vec2 {
+        Vec2::new(self.size as f32, self.index)
+    }
+    pub fn polygon(&self, min: i32, max: i32) -> Polygon {
+        Polygon::new(&[
+            self.focus - Vec2::Y * 0.5 + self.dir() * min as f32,
+            self.focus - Vec2::Y * 0.5 + self.dir() * max as f32,
+            self.focus + Vec2::Y * 0.5 + self.dir() * max as f32,
+            self.focus + Vec2::Y * 0.5 + self.dir() * min as f32,
+        ])
+    }
+    pub fn parity(&self) -> i32 {
+        assert!(self.focus.x.fract() == 0.0);
+        (self.focus.x as i32).div_euclid(self.size).rem_euclid(2)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -156,6 +189,9 @@ impl Frustrum {
     pub fn upper_dir(&self) -> IVec2 {
         IVec2::new(self.size, self.index + 1)
     }
+    pub fn dir(&self) -> Vec2 {
+        Vec2::new(self.size as f32, self.index as f32 + 0.5)
+    }
     pub fn polygon(&self, min: i32, max: i32) -> Polygon {
         Polygon::new(
             &[
@@ -168,7 +204,7 @@ impl Frustrum {
         )
     }
     pub fn parity(&self) -> i32 {
-        (self.focus.x / self.size).rem_euclid(2)
+        self.focus.x.div_euclid(self.size).rem_euclid(2)
     }
 }
 
