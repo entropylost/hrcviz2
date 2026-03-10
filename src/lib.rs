@@ -144,11 +144,11 @@ impl HalfPlane {
 }
 
 pub fn transmission(probe: Vec2, emitter: Vec2) -> f32 {
-    let distance = (probe.x - emitter.x).abs().max(1.0);
-    1.0 / distance
-    // 1.0
-    // let distance = probe.distance(emitter).max(1.0);
+    // let distance = (probe.x - emitter.x).abs().max(1.0);
     // 1.0 / distance
+    // 1.0
+    let distance = probe.distance(emitter).max(1.0);
+    1.0 / distance
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]

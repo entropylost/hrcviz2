@@ -1,24 +1,35 @@
-use std::{cell::RefCell, collections::HashMap, rc::Rc};
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::rc::Rc;
 
 use glam::{Affine2, IVec2, Vec2};
+use hrcviz2::*;
 use log::debug;
 use palette::Srgb;
-use wasm_bindgen::{JsCast, prelude::Closure};
+use wasm_bindgen::JsCast;
+use wasm_bindgen::prelude::Closure;
 use web_sys::{CanvasRenderingContext2d, window};
 
 use crate::draw::{DrawContext, luma, lumaa, rgb, rgba};
 
-use hrcviz2::*;
-
 pub mod draw;
 pub mod input;
 
-fn get_transmission_recursive_linear(frustrum: LinearFrustrum, emitter: IVec2) -> f32 {
+fn get_transmission_recursive_linear(
+    frustrum: LinearFrustrum,
+    emitter: IVec2,
+    mut ctx: Option<&mut DrawContext>,
+) -> f32 {
     let frustrum_poly = frustrum.polygon(1, 128 / frustrum.size);
     let source = Polygon::from(Rect::center_size(emitter.as_vec2(), Vec2::splat(1.0)));
 
     let intersection_area = source.intersect(&frustrum_poly).area();
     if intersection_area <= 0.0 {
+        if let Some(ref mut ctx) = ctx {
+            ctx.polygon(&frustrum_poly.vertices)
+                .fill(rgba(1.0, 0.0, 0.0, 0.1))
+                .stroke("red");
+        }
         return 0.0;
     }
 
@@ -31,18 +42,43 @@ fn get_transmission_recursive_linear(frustrum: LinearFrustrum, emitter: IVec2) -
             index: frustrum.index * 2.0,
         };
 
-        get_transmission_recursive_linear(next, emitter)
+        if let Some(ref mut ctx) = ctx {
+            ctx.polygon(&traced_frustrum.vertices)
+                .fill(rgba(1.0, 1.0, 0.0, 0.1))
+                .stroke("yellow");
+        }
+
+        get_transmission_recursive_linear(next, emitter, ctx.as_deref_mut())
             + traced_intersection_area * transmission(frustrum.focus, emitter.as_vec2())
     } else {
+        let traced_frustrum = frustrum.polygon(1, 3);
+        let traced_intersection_area = source.intersect(&traced_frustrum).area();
+
+        if let Some(ref mut ctx) = ctx {
+            ctx.polygon(&traced_frustrum.vertices)
+                .fill(rgba(0.0, 1.0, 1.0, 0.1))
+                .stroke("cyan");
+        }
+
         let next_size = frustrum.size * 2;
 
-        let next = LinearFrustrum {
-            focus: frustrum.focus - frustrum.dir(),
+        // let next_near = LinearFrustrum {
+        //     focus: frustrum.focus - frustrum.dir(),
+        //     size: next_size,
+        //     index: frustrum.index * 2.0,
+        // };
+        let next_far = LinearFrustrum {
+            focus: frustrum.focus + frustrum.dir(),
             size: next_size,
             index: frustrum.index * 2.0,
         };
 
-        get_transmission_recursive_linear(next, emitter)
+        // get_transmission_recursive_linear(next_near, emitter, ctx.as_deref_mut())
+        // + 0.5
+        (get_transmission_recursive_linear(next_far, emitter, ctx)
+            + 0.7 / 0.5
+                * traced_intersection_area
+                * transmission(frustrum.focus, emitter.as_vec2()))
     }
 }
 
@@ -63,11 +99,11 @@ fn get_transmission_recursive_simple(
 
     let intersection_area = source.intersect(&frustrum_poly).area();
     if intersection_area <= 0.0 {
-        // if let Some(ref mut ctx) = ctx {
-        //     ctx.polygon(&frustrum_poly.vertices)
-        //         .fill(rgba(1.0, 0.0, 0.0, 0.1))
-        //         .stroke("red");
-        // }
+        if let Some(ref mut ctx) = ctx {
+            ctx.polygon(&frustrum_poly.vertices)
+                .fill(rgba(1.0, 0.0, 0.0, 0.1))
+                .stroke("red");
+        }
         return 0.0;
     }
 
@@ -91,25 +127,59 @@ fn get_transmission_recursive_simple(
                 get_transmission_recursive_simple(f, emitter, ctx.as_deref_mut(), cache) * w;
         }
     } else {
+        let traced_frustrum = frustrum.polygon(1, 3);
+        let traced_intersection_area = source.intersect(&traced_frustrum).area();
+        adjustment =
+            // further away only
+            0.7 / 0.5 * traced_intersection_area * transmission(frustrum.focus.as_vec2(), emitter.as_vec2());
+        // adjustment = 0.0;
+
+        if let Some(ref mut ctx) = ctx {
+            ctx.polygon(&traced_frustrum.vertices)
+                .fill(rgba(0.0, 1.0, 1.0, 0.1))
+                .stroke("cyan");
+        }
+
         let next_size = frustrum.size * 2;
         let next_frustrums = [
+            // Frustrum {
+            //     focus: frustrum.focus - frustrum.lower_dir(),
+            //     size: next_size,
+            //     index: frustrum.index * 2,
+            // },
+            // Frustrum {
+            //     focus: frustrum.focus - frustrum.upper_dir(),
+            //     size: next_size,
+            //     index: frustrum.index * 2 + 1,
+            // },
             Frustrum {
-                focus: frustrum.focus - frustrum.lower_dir(),
+                focus: frustrum.focus + frustrum.lower_dir(),
                 size: next_size,
                 index: frustrum.index * 2,
             },
             Frustrum {
-                focus: frustrum.focus - frustrum.upper_dir(),
+                focus: frustrum.focus + frustrum.upper_dir(),
                 size: next_size,
                 index: frustrum.index * 2 + 1,
             },
         ];
-        let mid_frustrum = LinearFrustrum {
-            focus: frustrum.focus.as_vec2() - frustrum.dir(),
+        // let mid_frustrum_near = LinearFrustrum {
+        //     focus: frustrum.focus.as_vec2() - frustrum.dir(),
+        //     size: next_size,
+        //     index: 2.0 * frustrum.dir().y,
+        // };
+        // overlap, subtract
+        // merged_radiance -=
+        //     0.5 * get_transmission_recursive_linear(mid_frustrum_near, emitter, ctx.as_deref_mut());
+
+        let mid_frustrum_far = LinearFrustrum {
+            focus: frustrum.focus.as_vec2() + frustrum.dir(),
             size: next_size,
             index: 2.0 * frustrum.dir().y,
         };
-        adjustment = -get_transmission_recursive_linear(mid_frustrum, emitter);
+
+        merged_radiance +=
+            1.0 * get_transmission_recursive_linear(mid_frustrum_far, emitter, ctx.as_deref_mut());
 
         let merges = next_frustrums.map(|f| (f, 1.0));
 
@@ -213,7 +283,7 @@ fn run() -> Option<()> {
         Affine2::from_scale(Vec2::splat(20.0)) * Affine2::from_translation(Vec2::splat(10.0)),
     );
 
-    let mut emitter = IVec2::new(5, 13);
+    let mut emitter = IVec2::new(40, 20);
 
     let mut probe = IVec2::new(3, 12);
 
