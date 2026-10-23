@@ -133,6 +133,61 @@ impl Mul<f32> for QuadraticTransmission {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct QuadraticProjectedTransmission {
+    pub value: f32,
+    // along the x-axis
+    pub moments: [f32; 2],
+}
+impl Transmission for QuadraticProjectedTransmission {
+    fn value(self) -> f32 {
+        self.value
+    }
+    fn new(frustrum: Frustrum, emitter: Vec2) -> Self {
+        let focus = frustrum.focus();
+        let dist = (emitter - focus).length();
+        let projected_dist = (emitter - focus).x;
+        let multiplier = projected_dist / dist;
+        Self {
+            value: multiplier / projected_dist,
+            moments: [
+                multiplier / (projected_dist * projected_dist),
+                2.0 * multiplier / (projected_dist * projected_dist * projected_dist),
+            ],
+        }
+    }
+    fn reproject(self, source: Frustrum, target: Frustrum) -> Self {
+        let source_focus = source.focus();
+        let target_focus = target.focus();
+        let dist = (target_focus - source_focus).x;
+        Self {
+            value: self.value + self.moments[0] * dist + 0.5 * self.moments[1] * dist * dist,
+            moments: [self.moments[0] + self.moments[1] * dist, self.moments[1]],
+        }
+    }
+}
+impl Add for QuadraticProjectedTransmission {
+    type Output = Self;
+    fn add(self, other: Self) -> Self {
+        Self {
+            value: self.value + other.value,
+            moments: [
+                self.moments[0] + other.moments[0],
+                self.moments[1] + other.moments[1],
+            ],
+        }
+    }
+}
+impl Mul<f32> for QuadraticProjectedTransmission {
+    type Output = Self;
+    fn mul(self, rhs: f32) -> Self {
+        Self {
+            value: self.value * rhs,
+            moments: [self.moments[0] * rhs, self.moments[1] * rhs],
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct Gradient2dTransmission {
     pub value: f32,
     // spatial derivatives in both directions

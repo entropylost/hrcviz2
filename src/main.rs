@@ -17,7 +17,7 @@ use crate::draw::{DrawContext, lumaa, rgba};
 pub mod draw;
 pub mod input;
 
-pub type Transmission = Hessian2dTransmission;
+pub type Transmission = QuadraticProjectedTransmission;
 
 fn get_transmission_recursive(
     frustrum: Frustrum,
