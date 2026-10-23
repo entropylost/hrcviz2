@@ -322,7 +322,7 @@ pub fn generate_merging_scheme(levels: u32) -> MergingSchema {
                 );
             }
             let mask = merge_odd_errors(frustrum);
-            pixel_weights.retain(|i, w| {
+            pixel_weights.retain(|i, _w| {
                 let rect = Polygon::from(Rect::center_size(i.as_vec2(), Vec2::splat(1.0)));
                 rect.intersect(&mask).area() > 0.0 // && w.abs() > 0.00001
             });
@@ -351,7 +351,7 @@ pub fn generate_merging_scheme(levels: u32) -> MergingSchema {
                 );
             }
             let mask = merge_even_errors(frustrum, 2);
-            pixel_weights.retain(|i, w| {
+            pixel_weights.retain(|i, _w| {
                 let rect = Polygon::from(Rect::center_size(i.as_vec2(), Vec2::splat(1.0)));
                 mask.iter().any(|mask| rect.intersect(mask).area() > 0.0) // && w.abs() > 0.00001
             });
