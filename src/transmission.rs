@@ -1,6 +1,6 @@
 use std::ops::{Add, Mul};
 
-use glam::Vec2;
+use glam::{Mat2, Vec2};
 
 use crate::frustrum::Frustrum;
 
@@ -150,7 +150,6 @@ impl Transmission for Gradient2dTransmission {
             gradient: (emitter - focus).normalize() * (1.0 / (dist * dist)),
         }
     }
-    // TODO: This doesn't rotate properly.
     fn reproject(self, source: Frustrum, target: Frustrum) -> Self {
         let source_focus = source.focus();
         let target_focus = target.focus();
@@ -175,6 +174,72 @@ impl Mul<f32> for Gradient2dTransmission {
         Self {
             value: self.value * rhs,
             gradient: self.gradient * rhs,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Hessian2dTransmission {
+    pub value: f32,
+    // spatial derivatives in both directions
+    pub gradient: Vec2,
+    // symmetric second spatial derivatives
+    pub hessian: Mat2,
+}
+// Mat2::default() is the identity, so Default can't be derived.
+impl Default for Hessian2dTransmission {
+    fn default() -> Self {
+        Self {
+            value: 0.0,
+            gradient: Vec2::ZERO,
+            hessian: Mat2::ZERO,
+        }
+    }
+}
+impl Transmission for Hessian2dTransmission {
+    fn value(self) -> f32 {
+        self.value
+    }
+    fn new(frustrum: Frustrum, emitter: Vec2) -> Self {
+        let focus = frustrum.focus();
+        let dist = (emitter - focus).length();
+        let dir = (emitter - focus).normalize();
+        let outer = Mat2::from_cols(dir * dir.x, dir * dir.y);
+        Self {
+            value: 1.0 / dist,
+            gradient: dir * (1.0 / (dist * dist)),
+            hessian: (outer * 3.0 - Mat2::IDENTITY) * (1.0 / (dist * dist * dist)),
+        }
+    }
+    fn reproject(self, source: Frustrum, target: Frustrum) -> Self {
+        let source_focus = source.focus();
+        let target_focus = target.focus();
+        let delta = target_focus - source_focus;
+        let hessian_delta = self.hessian * delta;
+        Self {
+            value: self.value + self.gradient.dot(delta) + 0.5 * delta.dot(hessian_delta),
+            gradient: self.gradient + hessian_delta,
+            hessian: self.hessian,
+        }
+    }
+}
+impl Add for Hessian2dTransmission {
+    type Output = Self;
+    fn add(self, other: Self) -> Self {
+        Self {
+            value: self.value + other.value,
+            gradient: self.gradient + other.gradient,
+            hessian: self.hessian + other.hessian,
+        }
+    }
+}
+impl Mul<f32> for Hessian2dTransmission {
+    type Output = Self;
+    fn mul(self, rhs: f32) -> Self {
+        Self {
+            value: self.value * rhs,
+            gradient: self.gradient * rhs,
+            hessian: self.hessian * rhs,
         }
     }
 }
