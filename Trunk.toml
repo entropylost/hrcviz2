@@ -1,3 +1,3 @@
 [build]
-html_output = "rtest2.html"
-public_url = "/hrcviz/"
+html_output = "index.html"
+public_url = "/hrcviz/reproject"

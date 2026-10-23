@@ -1,6 +1,7 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
+use std::sync::Mutex;
 
 use glam::{Affine2, IVec2, Vec2, Vec2Swizzles};
 use hrcviz2::frustrum::{ConeFrustrum, Frustrum, merge_even, merge_odd};
@@ -23,13 +24,18 @@ const TRANSMISSIONS: [(&str, RenderFn); 8] = [
     ("Constant1d", render::<Constant1dTransmission>),
     ("Constant", render::<ConstantTransmission>),
     ("Quadratic", render::<QuadraticTransmission>),
-    ("QuadraticProjected", render::<QuadraticProjectedTransmission>),
+    (
+        "QuadraticProjected",
+        render::<QuadraticProjectedTransmission>,
+    ),
     ("LinearProjected", render::<LinearProjectedTransmission>),
     ("Gradient", render::<GradientTransmission>),
     ("Hessian", render::<HessianTransmission>),
     ("AveragedLinear", render::<AveragedLinearTransmission>),
 ];
 const DEFAULT_TRANSMISSION: &str = "QuadraticProjected";
+
+static FRUSTRUM_START: Mutex<f32> = Mutex::new(0.0);
 
 fn get_transmission_recursive<T: Transmission>(
     frustrum: Frustrum,
@@ -47,7 +53,10 @@ fn get_transmission_recursive<T: Transmission>(
         debug!("Frustrum too large: {:?}", frustrum);
         return None;
     }
-    let frustrum_poly = frustrum.polygon(2.0, 128.0 / frustrum.size() as f32);
+    let frustrum_poly = frustrum.polygon(
+        *FRUSTRUM_START.lock().unwrap(),
+        128.0 / frustrum.size() as f32,
+    );
     if !frustrum_poly.contains(emitter) {
         if let Some(ref mut ctx) = ctx {
             ctx.polygon(&frustrum_poly.vertices)
@@ -164,11 +173,9 @@ fn run() -> Option<()> {
         .ok()?;
 
     let selector = document
-        .create_element("select")
-        .ok()?
+        .get_element_by_id("transmission")?
         .dyn_into::<web_sys::HtmlSelectElement>()
         .ok()?;
-    selector.set_id("transmission");
     for (name, _) in TRANSMISSIONS {
         let option = document
             .create_element("option")
@@ -179,13 +186,15 @@ fn run() -> Option<()> {
         option.set_selected(name == DEFAULT_TRANSMISSION);
         selector.add_with_html_option_element(&option).ok()?;
     }
-    document.body()?.append_child(&selector).ok()?;
+    let frustrum_length_input = document
+        .get_element_by_id("frustrum-len")
+        .unwrap()
+        .dyn_into::<web_sys::HtmlInputElement>()
+        .unwrap();
 
     let ctx = DrawContext::new(ctx);
 
-    let mut ctx = ctx.transform(
-        Affine2::from_scale(Vec2::splat(8.0)) * Affine2::from_translation(Vec2::splat(0.0)),
-    );
+    let mut ctx = ctx.transform(Affine2::from_scale(Vec2::splat(8.0)));
 
     let mut emitter = Vec2::new(40.3, 20.23);
 
@@ -203,8 +212,7 @@ fn run() -> Option<()> {
 
         ctx.clear();
 
-        debug!("Emitter: {:?}", emitter);
-
+        *FRUSTRUM_START.lock().unwrap() = frustrum_length_input.value().parse::<f32>().unwrap();
         let (_, render) = TRANSMISSIONS[selector.selected_index().max(0) as usize];
         render(&mut ctx, emitter);
 
