@@ -15,6 +15,7 @@ use crate::draw::{DrawContext, luma, lumaa, rgb, rgba};
 pub mod draw;
 pub mod input;
 
+// 1d merge
 fn get_transmission_recursive_linear(
     frustrum: LinearFrustrum,
     emitter: IVec2,
@@ -62,23 +63,21 @@ fn get_transmission_recursive_linear(
 
         let next_size = frustrum.size * 2;
 
-        // let next_near = LinearFrustrum {
-        //     focus: frustrum.focus - frustrum.dir(),
-        //     size: next_size,
-        //     index: frustrum.index * 2.0,
-        // };
+        let next_near = LinearFrustrum {
+            focus: frustrum.focus - frustrum.dir(),
+            size: next_size,
+            index: frustrum.index * 2.0,
+        };
         let next_far = LinearFrustrum {
             focus: frustrum.focus + frustrum.dir(),
             size: next_size,
             index: frustrum.index * 2.0,
         };
 
-        // get_transmission_recursive_linear(next_near, emitter, ctx.as_deref_mut())
-        // + 0.5
-        (get_transmission_recursive_linear(next_far, emitter, ctx)
-            + 0.7 / 0.5
-                * traced_intersection_area
-                * transmission(frustrum.focus, emitter.as_vec2()))
+        0.5 * get_transmission_recursive_linear(next_near, emitter, ctx.as_deref_mut())
+            + 0.5
+                * (get_transmission_recursive_linear(next_far, emitter, ctx)
+                    + traced_intersection_area * transmission(frustrum.focus, emitter.as_vec2()))
     }
 }
 
@@ -131,7 +130,7 @@ fn get_transmission_recursive_simple(
         let traced_intersection_area = source.intersect(&traced_frustrum).area();
         adjustment =
             // further away only
-            0.7 / 0.5 * traced_intersection_area * transmission(frustrum.focus.as_vec2(), emitter.as_vec2());
+            0.5 * traced_intersection_area * transmission(frustrum.focus.as_vec2(), emitter.as_vec2());
         // adjustment = 0.0;
 
         if let Some(ref mut ctx) = ctx {
@@ -142,16 +141,16 @@ fn get_transmission_recursive_simple(
 
         let next_size = frustrum.size * 2;
         let next_frustrums = [
-            // Frustrum {
-            //     focus: frustrum.focus - frustrum.lower_dir(),
-            //     size: next_size,
-            //     index: frustrum.index * 2,
-            // },
-            // Frustrum {
-            //     focus: frustrum.focus - frustrum.upper_dir(),
-            //     size: next_size,
-            //     index: frustrum.index * 2 + 1,
-            // },
+            Frustrum {
+                focus: frustrum.focus - frustrum.lower_dir(),
+                size: next_size,
+                index: frustrum.index * 2,
+            },
+            Frustrum {
+                focus: frustrum.focus - frustrum.upper_dir(),
+                size: next_size,
+                index: frustrum.index * 2 + 1,
+            },
             Frustrum {
                 focus: frustrum.focus + frustrum.lower_dir(),
                 size: next_size,
@@ -163,14 +162,14 @@ fn get_transmission_recursive_simple(
                 index: frustrum.index * 2 + 1,
             },
         ];
-        // let mid_frustrum_near = LinearFrustrum {
-        //     focus: frustrum.focus.as_vec2() - frustrum.dir(),
-        //     size: next_size,
-        //     index: 2.0 * frustrum.dir().y,
-        // };
+        let mid_frustrum_near = LinearFrustrum {
+            focus: frustrum.focus.as_vec2() - frustrum.dir(),
+            size: next_size,
+            index: 2.0 * frustrum.dir().y,
+        };
         // overlap, subtract
-        // merged_radiance -=
-        //     0.5 * get_transmission_recursive_linear(mid_frustrum_near, emitter, ctx.as_deref_mut());
+        merged_radiance -=
+            0.5 * get_transmission_recursive_linear(mid_frustrum_near, emitter, ctx.as_deref_mut());
 
         let mid_frustrum_far = LinearFrustrum {
             focus: frustrum.focus.as_vec2() + frustrum.dir(),
@@ -179,9 +178,9 @@ fn get_transmission_recursive_simple(
         };
 
         merged_radiance +=
-            1.0 * get_transmission_recursive_linear(mid_frustrum_far, emitter, ctx.as_deref_mut());
+            0.5 * get_transmission_recursive_linear(mid_frustrum_far, emitter, ctx.as_deref_mut());
 
-        let merges = next_frustrums.map(|f| (f, 1.0));
+        let merges = next_frustrums.map(|f| (f, 0.5));
 
         for (f, w) in merges {
             merged_radiance +=
@@ -195,6 +194,7 @@ fn get_transmission_recursive_simple(
     result
 }
 
+// uses the merging scheme to get adjustments
 fn get_transmission_recursive(
     frustrum: Frustrum,
     emitter: IVec2,
@@ -350,8 +350,6 @@ fn run() -> Option<()> {
             &mut cache,
         );
 
-        // let frustrum_size = 4;
-        // let extent = IVec2::new(2, 6);
         let target_frustrum = Frustrum {
             focus: probe,
             size: frustrum_size,
@@ -370,7 +368,6 @@ fn run() -> Option<()> {
             }
         }*/
 
-        /*
         let mut pixel_weights = HashMap::new();
 
         let next_frustrums = merge_even(target_frustrum);
@@ -420,7 +417,7 @@ fn run() -> Option<()> {
             ctx.polygon(&frustrum.polygon(2, 4).vertices)
                 .fill(rgba(0.0, 1.0, 1.0, 0.05))
                 .stroke(rgba(0.0, 1.0, 1.0, 0.3));
-        }*/
+        }
 
         ctx.finish();
     });
