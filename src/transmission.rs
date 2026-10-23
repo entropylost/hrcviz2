@@ -131,3 +131,50 @@ impl Mul<f32> for QuadraticTransmission {
         }
     }
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct Gradient2dTransmission {
+    pub value: f32,
+    // spatial derivatives in both directions
+    pub gradient: Vec2,
+}
+impl Transmission for Gradient2dTransmission {
+    fn value(self) -> f32 {
+        self.value
+    }
+    fn new(frustrum: Frustrum, emitter: Vec2) -> Self {
+        let focus = frustrum.focus();
+        let dist = (emitter - focus).length();
+        Self {
+            value: 1.0 / dist,
+            gradient: (emitter - focus).normalize() * (1.0 / (dist * dist)),
+        }
+    }
+    // TODO: This doesn't rotate properly.
+    fn reproject(self, source: Frustrum, target: Frustrum) -> Self {
+        let source_focus = source.focus();
+        let target_focus = target.focus();
+        Self {
+            value: self.value + self.gradient.dot(target_focus - source_focus),
+            gradient: self.gradient,
+        }
+    }
+}
+impl Add for Gradient2dTransmission {
+    type Output = Self;
+    fn add(self, other: Self) -> Self {
+        Self {
+            value: self.value + other.value,
+            gradient: self.gradient + other.gradient,
+        }
+    }
+}
+impl Mul<f32> for Gradient2dTransmission {
+    type Output = Self;
+    fn mul(self, rhs: f32) -> Self {
+        Self {
+            value: self.value * rhs,
+            gradient: self.gradient * rhs,
+        }
+    }
+}
