@@ -1,11 +1,8 @@
 use glam::{Affine2, IVec2, Vec2};
-use palette::{
-    Srgb, Srgba,
-    luma::{Luma, Lumaa},
-};
+use hrcviz2::shape::Rect;
+use palette::luma::{Luma, Lumaa};
+use palette::{Srgb, Srgba};
 use web_sys::CanvasRenderingContext2d;
-
-use hrcviz2::Rect;
 
 use crate::input::{MouseButton, MouseState, register_input_handlers};
 

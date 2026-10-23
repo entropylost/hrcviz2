@@ -2,8 +2,11 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
-use glam::{Affine2, IVec2, Vec2};
-use hrcviz2::*;
+use glam::{Affine2, IVec2, Vec2, Vec2Swizzles};
+use hrcviz2::frustrum::{ConeFrustrum, Frustrum, merge_even, merge_odd};
+use hrcviz2::range2d;
+use hrcviz2::shape::Rect;
+use hrcviz2::transmission::{Transmission as _, *};
 use log::debug;
 use wasm_bindgen::JsCast;
 use wasm_bindgen::prelude::Closure;
@@ -14,183 +17,87 @@ use crate::draw::{DrawContext, lumaa, rgba};
 pub mod draw;
 pub mod input;
 
-// 1d merge
-fn get_transmission_recursive_linear(
-    frustrum: LinearFrustrum,
-    emitter: IVec2,
-    mut ctx: Option<&mut DrawContext>,
-) -> f32 {
-    let frustrum_poly = frustrum.polygon(1, 128 / frustrum.size);
-    let source = Polygon::from(Rect::center_size(emitter.as_vec2(), Vec2::splat(1.0)));
+pub type Transmission = QuadraticTransmission;
 
-    let intersection_area = source.intersect(&frustrum_poly).area();
-    if intersection_area <= 0.0 {
-        if let Some(ref mut ctx) = ctx {
-            ctx.polygon(&frustrum_poly.vertices)
-                .fill(rgba(1.0, 0.0, 0.0, 0.1))
-                .stroke("red");
-        }
-        return 0.0;
-    }
-
-    if frustrum.parity() == 0 {
-        let traced_frustrum = frustrum.polygon(1, 2);
-        let traced_intersection_area = source.intersect(&traced_frustrum).area();
-        let next = LinearFrustrum {
-            focus: frustrum.focus,
-            size: frustrum.size * 2,
-            index: frustrum.index * 2.0,
-        };
-
-        if let Some(ref mut ctx) = ctx {
-            ctx.polygon(&traced_frustrum.vertices)
-                .fill(rgba(1.0, 1.0, 0.0, 0.1))
-                .stroke("yellow");
-        }
-
-        get_transmission_recursive_linear(next, emitter, ctx.as_deref_mut())
-            + traced_intersection_area * transmission(frustrum.focus, emitter.as_vec2())
-    } else {
-        let traced_frustrum = frustrum.polygon(1, 3);
-        let traced_intersection_area = source.intersect(&traced_frustrum).area();
-
-        if let Some(ref mut ctx) = ctx {
-            ctx.polygon(&traced_frustrum.vertices)
-                .fill(rgba(0.0, 1.0, 1.0, 0.1))
-                .stroke("cyan");
-        }
-
-        let next_size = frustrum.size * 2;
-
-        let next_near = LinearFrustrum {
-            focus: frustrum.focus - frustrum.dir(),
-            size: next_size,
-            index: frustrum.index * 2.0,
-        };
-        let next_far = LinearFrustrum {
-            focus: frustrum.focus + frustrum.dir(),
-            size: next_size,
-            index: frustrum.index * 2.0,
-        };
-
-        0.5 * get_transmission_recursive_linear(next_near, emitter, ctx.as_deref_mut())
-            + 0.5
-                * (get_transmission_recursive_linear(next_far, emitter, ctx)
-                    + traced_intersection_area * transmission(frustrum.focus, emitter.as_vec2()))
-    }
-}
-
-fn get_transmission_recursive_simple(
+fn get_transmission_recursive(
     frustrum: Frustrum,
-    emitter: IVec2,
+    emitter: Vec2,
     mut ctx: Option<&mut DrawContext>,
-    cache: &mut HashMap<(Frustrum, IVec2), f32>,
-) -> f32 {
-    if let Some(&cached) = cache.get(&(frustrum, emitter))
+    cache: &mut HashMap<Frustrum, Transmission>,
+) -> Option<Transmission> {
+    if let Some(&cached) = cache.get(&frustrum)
         && ctx.is_none()
     {
-        return cached;
+        return Some(cached);
     }
 
-    let frustrum_poly = frustrum.polygon(1, 128 / frustrum.size);
-    let source = Polygon::from(Rect::center_size(emitter.as_vec2(), Vec2::splat(1.0)));
-
-    let intersection_area = source.intersect(&frustrum_poly).area();
-    if intersection_area <= 0.0 {
+    if frustrum.size() > 128 {
+        debug!("Frustrum too large: {:?}", frustrum);
+        return None;
+    }
+    let frustrum_poly = frustrum.polygon(2, 128 / frustrum.size());
+    if !frustrum_poly.contains(emitter) {
         if let Some(ref mut ctx) = ctx {
             ctx.polygon(&frustrum_poly.vertices)
                 .fill(rgba(1.0, 0.0, 0.0, 0.1))
                 .stroke("red");
         }
-        return 0.0;
+        return None;
     }
 
-    let mut merged_radiance = 0.0;
-    let adjustment;
-
-    if frustrum.parity() == 0 {
-        let traced_frustrum = frustrum.polygon(1, 2);
-        let traced_intersection_area = source.intersect(&traced_frustrum).area();
-        adjustment =
-            traced_intersection_area * transmission(frustrum.focus.as_vec2(), emitter.as_vec2());
-
-        if let Some(ref mut ctx) = ctx {
-            ctx.polygon(&traced_frustrum.vertices)
-                .fill(rgba(1.0, 1.0, 0.0, 0.1))
-                .stroke("yellow");
-        }
-
-        for (f, w) in merge_odd(frustrum) {
-            merged_radiance +=
-                get_transmission_recursive_simple(f, emitter, ctx.as_deref_mut(), cache) * w;
+    let result = if frustrum.parity() == 0 {
+        let next = merge_even(frustrum);
+        let contributions = next
+            .into_iter()
+            .filter_map(|(f, w)| {
+                let transmission =
+                    get_transmission_recursive(f, emitter, ctx.as_deref_mut(), cache);
+                transmission.map(|t| t.reproject(f, frustrum) * w)
+            })
+            .collect::<Vec<_>>();
+        if contributions.is_empty() {
+            if let Some(ref mut ctx) = ctx {
+                ctx.polygon(&frustrum.polygon(1, 2).vertices)
+                    .fill(rgba(1.0, 1.0, 0.0, 0.1))
+                    .stroke("yellow");
+            }
+            Transmission::new(frustrum, emitter)
+        } else {
+            // assert_eq!(contributions.len(), 1, "normal overlap fail");
+            contributions.into_iter().reduce(|a, b| a + b).unwrap()
         }
     } else {
-        let traced_frustrum = frustrum.polygon(1, 3);
-        let traced_intersection_area = source.intersect(&traced_frustrum).area();
-        adjustment =
-            // further away only
-            0.5 * traced_intersection_area * transmission(frustrum.focus.as_vec2(), emitter.as_vec2());
-        // adjustment = 0.0;
+        let contributions = [false, true].map(|far| {
+            let next = merge_odd(frustrum, far);
+            let contributions = next
+                .into_iter()
+                .filter_map(|(f, w)| {
+                    let transmission =
+                        get_transmission_recursive(f, emitter, ctx.as_deref_mut(), cache);
+                    transmission.map(|t| t.reproject(f, frustrum) * w)
+                })
+                .collect::<Vec<_>>();
+            if contributions.is_empty() {
+                // only happens if far
+                if let Some(ref mut ctx) = ctx {
+                    ctx.polygon(&frustrum.polygon(1, 3).vertices)
+                        .fill(rgba(0.0, 1.0, 1.0, 0.1))
+                        .stroke("cyan");
+                }
+                Transmission::new(frustrum, emitter)
+            } else {
+                // if far {
+                //     assert_eq!(contributions.len(), 1, "far overlap fail");
+                // }
+                // because overlap possible with near
+                contributions.into_iter().reduce(|a, b| a + b).unwrap()
+            }
+        });
+        contributions[0] * 0.5 + contributions[1] * 0.5
+    };
 
-        if let Some(ref mut ctx) = ctx {
-            ctx.polygon(&traced_frustrum.vertices)
-                .fill(rgba(0.0, 1.0, 1.0, 0.1))
-                .stroke("cyan");
-        }
-
-        let next_size = frustrum.size * 2;
-        let next_frustrums = [
-            Frustrum {
-                focus: frustrum.focus - frustrum.lower_dir(),
-                size: next_size,
-                index: frustrum.index * 2,
-            },
-            Frustrum {
-                focus: frustrum.focus - frustrum.upper_dir(),
-                size: next_size,
-                index: frustrum.index * 2 + 1,
-            },
-            Frustrum {
-                focus: frustrum.focus + frustrum.lower_dir(),
-                size: next_size,
-                index: frustrum.index * 2,
-            },
-            Frustrum {
-                focus: frustrum.focus + frustrum.upper_dir(),
-                size: next_size,
-                index: frustrum.index * 2 + 1,
-            },
-        ];
-        let mid_frustrum_near = LinearFrustrum {
-            focus: frustrum.focus.as_vec2() - frustrum.dir(),
-            size: next_size,
-            index: 2.0 * frustrum.dir().y,
-        };
-        // overlap, subtract
-        merged_radiance -=
-            0.5 * get_transmission_recursive_linear(mid_frustrum_near, emitter, ctx.as_deref_mut());
-
-        let mid_frustrum_far = LinearFrustrum {
-            focus: frustrum.focus.as_vec2() + frustrum.dir(),
-            size: next_size,
-            index: 2.0 * frustrum.dir().y,
-        };
-
-        merged_radiance +=
-            0.5 * get_transmission_recursive_linear(mid_frustrum_far, emitter, ctx.as_deref_mut());
-
-        let merges = next_frustrums.map(|f| (f, 0.5));
-
-        for (f, w) in merges {
-            merged_radiance +=
-                get_transmission_recursive_simple(f, emitter, ctx.as_deref_mut(), cache) * w;
-        }
-    }
-
-    let result = adjustment + merged_radiance;
-
-    cache.insert((frustrum, emitter), result);
-    result
+    cache.insert(frustrum, result);
+    Some(result)
 }
 
 fn run() -> Option<()> {
@@ -210,12 +117,10 @@ fn run() -> Option<()> {
     let ctx = DrawContext::new(ctx);
 
     let mut ctx = ctx.transform(
-        Affine2::from_scale(Vec2::splat(20.0)) * Affine2::from_translation(Vec2::splat(10.0)),
+        Affine2::from_scale(Vec2::splat(8.0)) * Affine2::from_translation(Vec2::splat(0.0)),
     );
 
-    let mut emitter = IVec2::new(40, 20);
-
-    let mut probe = IVec2::new(3, 12);
+    let mut emitter = Vec2::new(40.3, 20.23);
 
     anim_loop(move || {
         let window_width = window().unwrap().inner_width().unwrap().as_f64().unwrap() as u32;
@@ -231,40 +136,45 @@ fn run() -> Option<()> {
 
         ctx.clear();
 
-        let mut cache = HashMap::new();
+        let mut caches = HashMap::new();
 
-        for cell in range2d(emitter - IVec2::splat(64), emitter + IVec2::Y * 16) {
-            let transmission = get_transmission_recursive_simple(
-                Frustrum {
-                    focus: cell,
+        debug!("Emitter: {:?}", emitter);
+
+        for cell in range2d(IVec2::splat(1), IVec2::splat(128)) {
+            let offset = emitter - cell.as_vec2();
+            let facing = offset.x.abs() > offset.y.abs();
+            let (mut probe, mut emitter) = if facing {
+                (cell, emitter)
+            } else {
+                (cell.yx(), emitter.yx())
+            };
+            let flip = probe.x as f32 > emitter.x;
+            if flip {
+                probe.x = 128 - probe.x;
+                emitter.x = 128.0 - emitter.x;
+            }
+
+            for i in [-1, 0] {
+                let frustrum = Frustrum::Cone(ConeFrustrum {
+                    focus: probe,
                     size: 1,
-                    index: 0,
-                },
-                emitter,
-                None,
-                &mut cache,
-            );
-            ctx.rect(Rect::center_size(cell.as_vec2(), Vec2::splat(1.0)))
-                .fill(lumaa(10.0 * transmission, 1.0));
+                    index: i,
+                });
+                let transmission = get_transmission_recursive(
+                    frustrum,
+                    emitter,
+                    None,
+                    caches.entry((facing, flip)).or_default(),
+                );
+                if let Some(transmission) = transmission {
+                    ctx.rect(Rect::center_size(cell.as_vec2(), Vec2::splat(1.0)))
+                        .fill(lumaa(6.0 * transmission.value(), 1.0));
+                }
+            }
         }
 
-        ctx.responsive_grid_point(&mut probe);
-
-        ctx.circle(probe.as_vec2(), 0.2).fill("red");
-
-        ctx.responsive_grid_point(&mut emitter);
-        ctx.circle(emitter.as_vec2(), 0.2).fill("blue");
-
-        get_transmission_recursive_simple(
-            Frustrum {
-                focus: probe,
-                size: 1,
-                index: 0,
-            },
-            emitter,
-            Some(&mut ctx),
-            &mut cache,
-        );
+        ctx.responsive_point(&mut emitter);
+        ctx.circle(emitter, 0.4).fill("red");
 
         ctx.finish();
     });
