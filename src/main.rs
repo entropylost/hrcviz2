@@ -6,7 +6,7 @@ use glam::{Affine2, IVec2, Vec2, Vec2Swizzles};
 use hrcviz2::frustrum::{ConeFrustrum, Frustrum, merge_even, merge_odd};
 use hrcviz2::range2d;
 use hrcviz2::shape::Rect;
-use hrcviz2::transmission::{Transmission as _, *};
+use hrcviz2::transmission::*;
 use log::debug;
 use wasm_bindgen::JsCast;
 use wasm_bindgen::prelude::Closure;
@@ -17,14 +17,26 @@ use crate::draw::{DrawContext, lumaa, rgba};
 pub mod draw;
 pub mod input;
 
-pub type Transmission = QuadraticProjectedTransmission;
+type RenderFn = fn(&mut DrawContext, Vec2);
 
-fn get_transmission_recursive(
+const TRANSMISSIONS: [(&str, RenderFn); 8] = [
+    ("Constant1d", render::<Constant1dTransmission>),
+    ("Constant", render::<ConstantTransmission>),
+    ("Quadratic", render::<QuadraticTransmission>),
+    ("QuadraticProjected", render::<QuadraticProjectedTransmission>),
+    ("LinearProjected", render::<LinearProjectedTransmission>),
+    ("Gradient", render::<GradientTransmission>),
+    ("Hessian", render::<HessianTransmission>),
+    ("AveragedLinear", render::<AveragedLinearTransmission>),
+];
+const DEFAULT_TRANSMISSION: &str = "QuadraticProjected";
+
+fn get_transmission_recursive<T: Transmission>(
     frustrum: Frustrum,
     emitter: Vec2,
     mut ctx: Option<&mut DrawContext>,
-    cache: &mut HashMap<Frustrum, Transmission>,
-) -> Option<Transmission> {
+    cache: &mut HashMap<Frustrum, T>,
+) -> Option<T> {
     if let Some(&cached) = cache.get(&frustrum)
         && ctx.is_none()
     {
@@ -61,7 +73,7 @@ fn get_transmission_recursive(
                     .fill(rgba(1.0, 1.0, 0.0, 0.1))
                     .stroke("yellow");
             }
-            Transmission::new(frustrum, emitter)
+            T::new(frustrum, emitter)
         } else {
             // assert_eq!(contributions.len(), 1, "normal overlap fail");
             contributions.into_iter().reduce(|a, b| a + b).unwrap()
@@ -84,7 +96,7 @@ fn get_transmission_recursive(
                         .fill(rgba(0.0, 1.0, 1.0, 0.1))
                         .stroke("cyan");
                 }
-                Transmission::new(frustrum, emitter)
+                T::new(frustrum, emitter)
             } else {
                 // if far {
                 //     assert_eq!(contributions.len(), 1, "far overlap fail");
@@ -100,6 +112,43 @@ fn get_transmission_recursive(
     Some(result)
 }
 
+fn render<T: Transmission>(ctx: &mut DrawContext, emitter: Vec2) {
+    let mut caches = HashMap::<_, HashMap<Frustrum, T>>::new();
+
+    for cell in range2d(IVec2::splat(1), IVec2::splat(128)) {
+        let offset = emitter - cell.as_vec2();
+        let facing = offset.x.abs() > offset.y.abs();
+        let (mut probe, mut emitter) = if facing {
+            (cell, emitter)
+        } else {
+            (cell.yx(), emitter.yx())
+        };
+        let flip = probe.x as f32 > emitter.x;
+        if flip {
+            probe.x = 128 - probe.x;
+            emitter.x = 128.0 - emitter.x;
+        }
+
+        for i in [-1, 0] {
+            let frustrum = Frustrum::Cone(ConeFrustrum {
+                focus: probe,
+                size: 1,
+                index: i,
+            });
+            let transmission = get_transmission_recursive(
+                frustrum,
+                emitter,
+                None,
+                caches.entry((facing, flip)).or_default(),
+            );
+            if let Some(transmission) = transmission {
+                ctx.rect(Rect::center_size(cell.as_vec2(), Vec2::splat(1.0)))
+                    .fill(lumaa(6.0 * transmission.value(), 1.0));
+            }
+        }
+    }
+}
+
 fn run() -> Option<()> {
     let document = window()?.document()?;
 
@@ -113,6 +162,24 @@ fn run() -> Option<()> {
         .ok()??
         .dyn_into::<web_sys::CanvasRenderingContext2d>()
         .ok()?;
+
+    let selector = document
+        .create_element("select")
+        .ok()?
+        .dyn_into::<web_sys::HtmlSelectElement>()
+        .ok()?;
+    selector.set_id("transmission");
+    for (name, _) in TRANSMISSIONS {
+        let option = document
+            .create_element("option")
+            .ok()?
+            .dyn_into::<web_sys::HtmlOptionElement>()
+            .ok()?;
+        option.set_text(name);
+        option.set_selected(name == DEFAULT_TRANSMISSION);
+        selector.add_with_html_option_element(&option).ok()?;
+    }
+    document.body()?.append_child(&selector).ok()?;
 
     let ctx = DrawContext::new(ctx);
 
@@ -136,42 +203,10 @@ fn run() -> Option<()> {
 
         ctx.clear();
 
-        let mut caches = HashMap::new();
-
         debug!("Emitter: {:?}", emitter);
 
-        for cell in range2d(IVec2::splat(1), IVec2::splat(128)) {
-            let offset = emitter - cell.as_vec2();
-            let facing = offset.x.abs() > offset.y.abs();
-            let (mut probe, mut emitter) = if facing {
-                (cell, emitter)
-            } else {
-                (cell.yx(), emitter.yx())
-            };
-            let flip = probe.x as f32 > emitter.x;
-            if flip {
-                probe.x = 128 - probe.x;
-                emitter.x = 128.0 - emitter.x;
-            }
-
-            for i in [-1, 0] {
-                let frustrum = Frustrum::Cone(ConeFrustrum {
-                    focus: probe,
-                    size: 1,
-                    index: i,
-                });
-                let transmission = get_transmission_recursive(
-                    frustrum,
-                    emitter,
-                    None,
-                    caches.entry((facing, flip)).or_default(),
-                );
-                if let Some(transmission) = transmission {
-                    ctx.rect(Rect::center_size(cell.as_vec2(), Vec2::splat(1.0)))
-                        .fill(lumaa(6.0 * transmission.value(), 1.0));
-                }
-            }
-        }
+        let (_, render) = TRANSMISSIONS[selector.selected_index().max(0) as usize];
+        render(&mut ctx, emitter);
 
         ctx.responsive_point(&mut emitter);
         ctx.circle(emitter, 0.4).fill("red");

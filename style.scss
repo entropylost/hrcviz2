@@ -24,3 +24,14 @@ body {
     height: 100vh;
     overflow: hidden;
 }
+
+#transmission {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    font-family: inherit;
+    color: inherit;
+    background: var(--background);
+    border: 1px solid #555;
+    padding: 4px;
+}
