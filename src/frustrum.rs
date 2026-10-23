@@ -23,7 +23,7 @@ impl Frustrum {
             Frustrum::Cone(f) => f.dir(),
         }
     }
-    pub fn polygon(&self, min: i32, max: i32) -> Polygon {
+    pub fn polygon(&self, min: f32, max: f32) -> Polygon {
         match self {
             Frustrum::Linear(f) => f.polygon(min, max),
             Frustrum::Cone(f) => f.polygon(min, max),
@@ -54,12 +54,12 @@ impl LinearFrustrum {
     pub fn dir(&self) -> Vec2 {
         Vec2::new(self.size as f32, self.index)
     }
-    pub fn polygon(&self, min: i32, max: i32) -> Polygon {
+    pub fn polygon(&self, min: f32, max: f32) -> Polygon {
         Polygon::new(&[
-            self.focus - Vec2::Y * 0.5 + self.dir() * min as f32,
-            self.focus - Vec2::Y * 0.5 + self.dir() * max as f32,
-            self.focus + Vec2::Y * 0.5 + self.dir() * max as f32,
-            self.focus + Vec2::Y * 0.5 + self.dir() * min as f32,
+            self.focus - Vec2::Y * 0.5 + self.dir() * min,
+            self.focus - Vec2::Y * 0.5 + self.dir() * max,
+            self.focus + Vec2::Y * 0.5 + self.dir() * max,
+            self.focus + Vec2::Y * 0.5 + self.dir() * min,
         ])
     }
     pub fn parity(&self) -> i32 {
@@ -103,15 +103,15 @@ impl ConeFrustrum {
     pub fn dir(&self) -> Vec2 {
         Vec2::new(self.size as f32, self.index as f32 + 0.5)
     }
-    pub fn polygon(&self, min: i32, max: i32) -> Polygon {
+    pub fn polygon(&self, min: f32, max: f32) -> Polygon {
         Polygon::new(
             &[
-                self.focus + self.lower_dir() * min,
-                self.focus + self.lower_dir() * max,
-                self.focus + self.upper_dir() * max,
-                self.focus + self.upper_dir() * min,
+                self.lower_dir().as_vec2() * min,
+                self.lower_dir().as_vec2() * max,
+                self.upper_dir().as_vec2() * max,
+                self.upper_dir().as_vec2() * min,
             ]
-            .map(|v| v.as_vec2()),
+            .map(|v| self.focus.as_vec2() + v),
         )
     }
     pub fn parity(&self) -> i32 {

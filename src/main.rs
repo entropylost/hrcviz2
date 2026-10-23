@@ -35,7 +35,7 @@ fn get_transmission_recursive(
         debug!("Frustrum too large: {:?}", frustrum);
         return None;
     }
-    let frustrum_poly = frustrum.polygon(2, 128 / frustrum.size());
+    let frustrum_poly = frustrum.polygon(2.0, 128.0 / frustrum.size() as f32);
     if !frustrum_poly.contains(emitter) {
         if let Some(ref mut ctx) = ctx {
             ctx.polygon(&frustrum_poly.vertices)
@@ -57,7 +57,7 @@ fn get_transmission_recursive(
             .collect::<Vec<_>>();
         if contributions.is_empty() {
             if let Some(ref mut ctx) = ctx {
-                ctx.polygon(&frustrum.polygon(1, 2).vertices)
+                ctx.polygon(&frustrum.polygon(1.0, 2.0).vertices)
                     .fill(rgba(1.0, 1.0, 0.0, 0.1))
                     .stroke("yellow");
             }
@@ -80,7 +80,7 @@ fn get_transmission_recursive(
             if contributions.is_empty() {
                 // only happens if far
                 if let Some(ref mut ctx) = ctx {
-                    ctx.polygon(&frustrum.polygon(1, 3).vertices)
+                    ctx.polygon(&frustrum.polygon(1.0, 3.0).vertices)
                         .fill(rgba(0.0, 1.0, 1.0, 0.1))
                         .stroke("cyan");
                 }
