@@ -188,12 +188,63 @@ impl Mul<f32> for QuadraticProjectedTransmission {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
-pub struct Gradient2dTransmission {
+pub struct LinearProjectedTransmission {
+    // approximate, at focus (also doing projected)
+    pub value: f32,
+    pub moment: f32,
+}
+impl Transmission for LinearProjectedTransmission {
+    fn value(self) -> f32 {
+        self.value
+    }
+    fn new(frustrum: Frustrum, emitter: Vec2) -> Self {
+        let focus = frustrum.focus();
+        let dist = (emitter - focus).length();
+        let projected_dist = (emitter - focus).x; // a
+        let multiplier = projected_dist / dist;
+
+        // target function: multiplier / projected_dist wrt. projected_dist
+        Self {
+            value: multiplier / projected_dist,
+            moment: multiplier / (projected_dist * projected_dist),
+        }
+    }
+    fn reproject(self, source: Frustrum, target: Frustrum) -> Self {
+        let source_focus = source.focus();
+        let target_focus = target.focus();
+        let dist = (target_focus - source_focus).x;
+        Self {
+            value: self.value + self.moment * dist,
+            moment: self.moment,
+        }
+    }
+}
+impl Add for LinearProjectedTransmission {
+    type Output = Self;
+    fn add(self, other: Self) -> Self {
+        Self {
+            value: self.value + other.value,
+            moment: self.moment + other.moment,
+        }
+    }
+}
+impl Mul<f32> for LinearProjectedTransmission {
+    type Output = Self;
+    fn mul(self, rhs: f32) -> Self {
+        Self {
+            value: self.value * rhs,
+            moment: self.moment * rhs,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct GradientTransmission {
     pub value: f32,
     // spatial derivatives in both directions
     pub gradient: Vec2,
 }
-impl Transmission for Gradient2dTransmission {
+impl Transmission for GradientTransmission {
     fn value(self) -> f32 {
         self.value
     }
@@ -214,7 +265,7 @@ impl Transmission for Gradient2dTransmission {
         }
     }
 }
-impl Add for Gradient2dTransmission {
+impl Add for GradientTransmission {
     type Output = Self;
     fn add(self, other: Self) -> Self {
         Self {
@@ -223,7 +274,7 @@ impl Add for Gradient2dTransmission {
         }
     }
 }
-impl Mul<f32> for Gradient2dTransmission {
+impl Mul<f32> for GradientTransmission {
     type Output = Self;
     fn mul(self, rhs: f32) -> Self {
         Self {
@@ -234,7 +285,7 @@ impl Mul<f32> for Gradient2dTransmission {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Hessian2dTransmission {
+pub struct HessianTransmission {
     pub value: f32,
     // spatial derivatives in both directions
     pub gradient: Vec2,
@@ -242,7 +293,7 @@ pub struct Hessian2dTransmission {
     pub hessian: Mat2,
 }
 // Mat2::default() is the identity, so Default can't be derived.
-impl Default for Hessian2dTransmission {
+impl Default for HessianTransmission {
     fn default() -> Self {
         Self {
             value: 0.0,
@@ -251,7 +302,7 @@ impl Default for Hessian2dTransmission {
         }
     }
 }
-impl Transmission for Hessian2dTransmission {
+impl Transmission for HessianTransmission {
     fn value(self) -> f32 {
         self.value
     }
@@ -278,7 +329,7 @@ impl Transmission for Hessian2dTransmission {
         }
     }
 }
-impl Add for Hessian2dTransmission {
+impl Add for HessianTransmission {
     type Output = Self;
     fn add(self, other: Self) -> Self {
         Self {
@@ -288,13 +339,69 @@ impl Add for Hessian2dTransmission {
         }
     }
 }
-impl Mul<f32> for Hessian2dTransmission {
+impl Mul<f32> for HessianTransmission {
     type Output = Self;
     fn mul(self, rhs: f32) -> Self {
         Self {
             value: self.value * rhs,
             gradient: self.gradient * rhs,
             hessian: self.hessian * rhs,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct AveragedLinearTransmission {
+    // approximate, at focus (also doing projected)
+    pub value: f32,
+    pub slope: f32,
+}
+impl Transmission for AveragedLinearTransmission {
+    fn value(self) -> f32 {
+        self.value
+    }
+    // least squares optimal between -c and c.
+    fn new(frustrum: Frustrum, emitter: Vec2) -> Self {
+        let focus = frustrum.focus();
+        let dist = (emitter - focus).length();
+        let projected_dist = (emitter - focus).x; // a
+        let multiplier = projected_dist / dist;
+
+        let average_range = frustrum.size() as f32 * 0.5; // c
+
+        let at = (average_range / projected_dist).atanh();
+
+        // target function: multiplier / projected_dist wrt. projected_dist
+        Self {
+            value: multiplier * at / average_range,
+            slope: multiplier * 3.0 * (projected_dist * at - average_range) / average_range.powi(3),
+        }
+    }
+    fn reproject(self, source: Frustrum, target: Frustrum) -> Self {
+        let source_focus = source.focus();
+        let target_focus = target.focus();
+        let dist = (target_focus - source_focus).x;
+        Self {
+            value: self.value + self.slope * dist,
+            slope: self.slope,
+        }
+    }
+}
+impl Add for AveragedLinearTransmission {
+    type Output = Self;
+    fn add(self, other: Self) -> Self {
+        Self {
+            value: self.value + other.value,
+            slope: self.slope + other.slope,
+        }
+    }
+}
+impl Mul<f32> for AveragedLinearTransmission {
+    type Output = Self;
+    fn mul(self, rhs: f32) -> Self {
+        Self {
+            value: self.value * rhs,
+            slope: self.slope * rhs,
         }
     }
 }
