@@ -1,7 +1,7 @@
 use glam::{Affine2, IVec2, Vec2};
-use hrcviz2::shape::Rect;
 use palette::luma::{Luma, Lumaa};
 use palette::{Srgb, Srgba};
+use twilight::shape::Rect;
 use web_sys::CanvasRenderingContext2d;
 
 use crate::input::{MouseButton, MouseState, register_input_handlers};
@@ -31,13 +31,7 @@ impl From<Srgb> for CanvasColor {
 impl From<Srgba> for CanvasColor {
     fn from(value: Srgba) -> Self {
         let (r, g, b, a) = value.into_components();
-        Self(format!(
-            "rgba({}, {}, {}, {})",
-            r * 255.0,
-            g * 255.0,
-            b * 255.0,
-            a
-        ))
+        Self(format!("rgba({}, {}, {}, {})", r * 255.0, g * 255.0, b * 255.0, a))
     }
 }
 impl From<Luma> for CanvasColor {
@@ -49,13 +43,7 @@ impl From<Luma> for CanvasColor {
 impl From<Lumaa> for CanvasColor {
     fn from(value: Lumaa) -> Self {
         let (l, a) = value.into_components();
-        Self(format!(
-            "rgba({}, {}, {}, {})",
-            l * 255.0,
-            l * 255.0,
-            l * 255.0,
-            a
-        ))
+        Self(format!("rgba({}, {}, {}, {})", l * 255.0, l * 255.0, l * 255.0, a))
     }
 }
 impl From<&str> for CanvasColor {
@@ -194,11 +182,7 @@ impl DrawContext {
             self.ctx.canvas().unwrap().width() as f32,
             self.ctx.canvas().unwrap().height() as f32,
         );
-        let start = self
-            .transform
-            .inverse()
-            .transform_point2(Vec2::ZERO)
-            .as_dvec2();
+        let start = self.transform.inverse().transform_point2(Vec2::ZERO).as_dvec2();
         let size = self.transform.inverse().transform_vector2(size).as_dvec2();
         self.ctx.clear_rect(start.x, start.y, size.x, size.y);
     }

@@ -1,6 +1,60 @@
 use glam::Vec2;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
+pub struct LineSegment {
+    pub start: Vec2,
+    pub end: Vec2,
+}
+impl LineSegment {
+    pub fn new(start: Vec2, end: Vec2) -> Self {
+        Self { start, end }
+    }
+    pub fn direction(&self) -> Vec2 {
+        self.end - self.start
+    }
+    pub fn length(&self) -> f32 {
+        self.direction().length()
+    }
+    pub fn at(&self, t: f32) -> Vec2 {
+        self.start + t * self.direction()
+    }
+    // Returns the intersection point of the two segments, if any.
+    // Parallel (including collinear) segments are treated as not intersecting.
+    pub fn intersect(&self, other: Self) -> Option<Vec2> {
+        self.intersect_t(other).map(|(t, _)| self.at(t))
+    }
+    // Like `intersect`, but returns the parameter `t` along `self` of the intersection point.
+    pub fn intersect_t(&self, other: Self) -> Option<(f32, f32)> {
+        let d = self.direction();
+        let e = other.direction();
+        let denom = d.perp_dot(e);
+        if denom == 0.0 {
+            return None;
+        }
+        let r = other.start - self.start;
+        let t = r.perp_dot(e) / denom;
+        let u = r.perp_dot(d) / denom;
+        if (0.0..=1.0).contains(&t) && (0.0..=1.0).contains(&u) {
+            Some((t, u))
+        } else {
+            None
+        }
+    }
+
+    pub fn collinear(&self, other: Self) -> bool {
+        const EPSILON: f32 = 1e-6;
+        let d = self.direction();
+        let e = other.direction();
+        d.perp_dot(e).abs() <= EPSILON && (other.start - self.start).perp_dot(d).abs() <= EPSILON
+    }
+}
+impl From<LineSegment> for [Vec2; 2] {
+    fn from(segment: LineSegment) -> Self {
+        [segment.start, segment.end]
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Rect {
     pub min: Vec2,
     pub max: Vec2,
@@ -73,24 +127,23 @@ impl Polygon {
                 new_vertices.push(a + t * (b - a));
             }
         }
-        Self {
-            vertices: new_vertices,
-        }
+        Self { vertices: new_vertices }
     }
     pub fn area(&self) -> f32 {
         self.iter_edges()
-            .map(|(a, b)| a.x * b.y - a.y * b.x)
+            .map(|LineSegment { start, end }| start.perp_dot(end))
             .sum::<f32>()
             * 0.5
     }
-    pub fn iter_edges(&self) -> impl Iterator<Item = (Vec2, Vec2)> + '_ {
+    pub fn iter_edges(&self) -> impl Iterator<Item = LineSegment> + '_ {
         self.vertices
             .iter()
             .copied()
             .zip(self.vertices.iter().copied().cycle().skip(1))
+            .map(|(a, b)| LineSegment::new(a, b))
     }
     pub fn iter_half_planes(&self) -> impl Iterator<Item = HalfPlane> + '_ {
-        self.iter_edges().map(|(a, b)| HalfPlane::from_points(a, b))
+        self.iter_edges().map(HalfPlane::from_line_segment)
     }
     pub fn reverse(&self) -> Self {
         let mut vertices = self.vertices.clone();
@@ -108,6 +161,24 @@ impl Polygon {
     pub fn contains(&self, point: Vec2) -> bool {
         self.iter_half_planes()
             .all(|plane| (point - plane.point).dot(plane.normal) >= 0.0)
+    }
+    // invariant: two polygons sharing one edge should only have one polygon
+    // return true to this for a point on the edge.
+    pub fn contains_one_sided(&self, point: Vec2) -> bool {
+        self.iter_edges().all(|LineSegment { start: a, end: b }| {
+            // Evaluate each edge with its endpoints in a canonical order so the
+            // polygon on the other side of a shared edge computes exactly the
+            // negated value, regardless of rounding.
+            let flipped = (a.x, a.y) > (b.x, b.y);
+            let (lo, hi) = if flipped { (b, a) } else { (a, b) };
+            let side = (hi - lo).perp_dot(point - lo);
+            if side == 0.0 {
+                // On the edge: only the polygon traversing it lo -> hi takes it.
+                !flipped
+            } else {
+                (side > 0.0) != flipped
+            }
+        })
     }
 }
 
@@ -127,6 +198,9 @@ impl HalfPlane {
             point: a.midpoint(b),
             normal,
         }
+    }
+    pub fn from_line_segment(segment: LineSegment) -> Self {
+        Self::from_points(segment.start, segment.end)
     }
     pub fn invert(&self) -> Self {
         Self {

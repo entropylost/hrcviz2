@@ -1,5 +1,5 @@
 [package]
-name = "hrcviz2"
+name = "twilight"
 version = "0.1.0"
 edition = "2024"
 
@@ -26,3 +26,6 @@ web-sys = { version = "0.3.85", features = [
     "HtmlInputElement",
     "CanvasRenderingContext2d",
 ] }
+
+[workspace]
+members = ["unchecked_tests"]

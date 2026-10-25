@@ -3,7 +3,7 @@ use std::hash::{Hash, Hasher};
 use glam::{IVec2, Vec2};
 use ordered_float::OrderedFloat;
 
-use crate::shape::Polygon;
+use crate::shape::{LineSegment, Polygon};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Frustrum {
@@ -24,9 +24,14 @@ impl Frustrum {
         }
     }
     pub fn polygon(&self, min: f32, max: f32) -> Polygon {
+        let start = self.at(min);
+        let end = self.at(max);
+        Polygon::new(&[start.start, end.start, end.end, start.end])
+    }
+    pub fn at(&self, t: f32) -> LineSegment {
         match self {
-            Frustrum::Linear(f) => f.polygon(min, max),
-            Frustrum::Cone(f) => f.polygon(min, max),
+            Frustrum::Linear(f) => f.at(t),
+            Frustrum::Cone(f) => f.at(t),
         }
     }
     pub fn parity(&self) -> i32 {
@@ -54,13 +59,11 @@ impl LinearFrustrum {
     pub fn dir(&self) -> Vec2 {
         Vec2::new(self.size as f32, self.index)
     }
-    pub fn polygon(&self, min: f32, max: f32) -> Polygon {
-        Polygon::new(&[
-            self.focus - Vec2::Y * 0.5 + self.dir() * min,
-            self.focus - Vec2::Y * 0.5 + self.dir() * max,
-            self.focus + Vec2::Y * 0.5 + self.dir() * max,
-            self.focus + Vec2::Y * 0.5 + self.dir() * min,
-        ])
+    pub fn at(&self, t: f32) -> LineSegment {
+        LineSegment::new(
+            self.focus - Vec2::Y * 0.5 + self.dir() * t,
+            self.focus + Vec2::Y * 0.5 + self.dir() * t,
+        )
     }
     pub fn parity(&self) -> i32 {
         assert!(self.focus.x.fract() == 0.0);
@@ -103,15 +106,10 @@ impl ConeFrustrum {
     pub fn dir(&self) -> Vec2 {
         Vec2::new(self.size as f32, self.index as f32 + 0.5)
     }
-    pub fn polygon(&self, min: f32, max: f32) -> Polygon {
-        Polygon::new(
-            &[
-                self.lower_dir().as_vec2() * min,
-                self.lower_dir().as_vec2() * max,
-                self.upper_dir().as_vec2() * max,
-                self.upper_dir().as_vec2() * min,
-            ]
-            .map(|v| self.focus.as_vec2() + v),
+    pub fn at(&self, t: f32) -> LineSegment {
+        LineSegment::new(
+            self.focus.as_vec2() + self.lower_dir().as_vec2() * t,
+            self.focus.as_vec2() + self.upper_dir().as_vec2() * t,
         )
     }
     pub fn parity(&self) -> i32 {
