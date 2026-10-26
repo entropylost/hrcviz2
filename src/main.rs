@@ -190,8 +190,8 @@ fn run() -> Option<()> {
     let mut scene = Scene {
         occluders: vec![Polygon::new(&[
             Vec2::new(60.0, 60.0),
-            Vec2::new(56.5, 80.0),
             Vec2::new(63.5, 70.0),
+            Vec2::new(56.5, 80.0),
         ])],
         emitters: vec![Emitter {
             brightness: 6.0,
