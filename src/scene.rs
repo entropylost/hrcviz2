@@ -1,6 +1,9 @@
 use glam::{Affine2, Vec2};
 
-use crate::shape::{LineSegment, Polygon};
+use crate::{
+    shape::{LineSegment, Polygon},
+    transmission::Transmission,
+};
 
 #[derive(Debug, Clone, Copy)]
 pub struct Emitter {
@@ -60,6 +63,15 @@ impl Scene {
             })
             .map(|interval| interval[1] - interval[0])
             .sum()
+    }
+    pub fn visible_emitters_within(&self, bundle: RayBundle) -> impl Iterator<Item = &Emitter> {
+        self.emitters.iter().filter(move |emitter| {
+            bundle.as_polygon().contains_one_sided(emitter.position)
+                && self.trace(LineSegment::new(
+                    bundle.at(bundle.offset_at(emitter.position).unwrap()).start,
+                    emitter.position,
+                ))
+        })
     }
 }
 

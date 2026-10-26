@@ -84,13 +84,8 @@ fn get_radiance_recursive<T: Transmission>(
                         end: next_near,
                     };
                     let mut emitted_radiance = T::default();
-                    for emitter in &scene.emitters {
-                        if bundle.as_polygon().contains_one_sided(emitter.position)
-                            && scene.trace(bundle.at(bundle.offset_at(emitter.position).unwrap()))
-                        {
-                            emitted_radiance =
-                                emitted_radiance + T::new(frustrum, emitter.position) * emitter.brightness;
-                        }
+                    for emitter in scene.visible_emitters_within(bundle) {
+                        emitted_radiance = emitted_radiance + T::new(frustrum, emitter.position) * emitter.brightness;
                     }
                     let transmittance = scene.trace_bundle(bundle);
                     let next_radiance = get_radiance_recursive(f, scene, cache);
@@ -130,17 +125,23 @@ fn render<T: Transmission>(ctx: &mut DrawContext, scene: &Scene) {
 
     for cell in range2d(IVec2::splat(1), IVec2::splat(128)) {
         let mut total_radiance = 0.0;
-        for (k, t) in transforms.iter().enumerate() {
+        for (k, (t, scene)) in transforms.iter().zip(&scenes).enumerate() {
             let probe = t.transform_point2(cell.as_vec2());
             assert!((probe - probe.round()).length() < 0.001, "{:?}", probe);
+            let probe = probe.round();
             for i in [-1, 0] {
                 let frustrum = Frustrum::Cone(ConeFrustrum {
-                    focus: probe.round().as_ivec2(),
+                    focus: probe.as_ivec2(),
                     size: 1,
                     index: i,
                 });
-                let radiance = get_radiance_recursive(frustrum, &scenes[k], caches.entry(k).or_default());
-                total_radiance += radiance.value();
+                let bundle = RayBundle {
+                    start: LineSegment::new(probe, probe),
+                    end: frustrum.at(*FRUSTRUM_START.lock().unwrap()),
+                };
+                let transmission = scene.trace_bundle(bundle);
+                let radiance = get_radiance_recursive(frustrum, scene, caches.entry(k).or_default());
+                total_radiance += radiance.value() * transmission;
             }
         }
         ctx.rect(Rect::center_size(cell.as_vec2(), Vec2::splat(1.0)))
