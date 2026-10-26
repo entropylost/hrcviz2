@@ -1,4 +1,4 @@
-use glam::Vec2;
+use glam::{Affine2, Vec2};
 
 use crate::shape::{LineSegment, Polygon};
 
@@ -15,52 +15,48 @@ pub struct Scene {
 }
 
 impl Scene {
+    pub fn transform(&self, transform: Affine2) -> Self {
+        Self {
+            occluders: self.occluders.iter().map(|p| p.transform(transform)).collect(),
+            emitters: self
+                .emitters
+                .iter()
+                .map(|emitter| Emitter {
+                    brightness: emitter.brightness,
+                    position: transform.transform_point2(emitter.position),
+                })
+                .collect(),
+        }
+    }
     // Returns true if the line segment is not blocked by any occluder.
-    pub fn trace(&self, start: Vec2, end: Vec2) -> bool {
-        let ray = LineSegment::new(start, end);
+    pub fn trace(&self, ray: LineSegment) -> bool {
         self.occluders.iter().all(|occluder| {
             // If the ray crosses no edge it is either entirely inside or entirely outside the occluder.
-            occluder.iter_edges().all(|edge| ray.intersect(edge).is_none()) && !occluder.contains(start)
+            occluder.iter_edges().all(|edge| ray.intersect(edge).is_none()) && !occluder.contains(ray.start)
         })
     }
-    // Traces all lines start.at(t) to end.at(t) for t in [0, 1] and returns the amount of the segment that is unblocked.
+    // Traces all lines bundle.at(t) for t in [0, 1] and returns the amount of the segment that is unblocked.
     // The result is measured in t, so it lies in [0, 1].
-    pub fn trace_rect(&self, start: LineSegment, end: LineSegment) -> f32 {
-        // Whether the line P(t) -> Q(t) is blocked can only change at a t where an endpoint crosses an occluder edge,
-        // or where the line sweeps over an occluder vertex. Visibility is constant between consecutive such events,
-        // so tracing a single line per interval gives the exact answer.
+    pub fn trace_bundle(&self, bundle: RayBundle) -> f32 {
+        // Whether a ray is blocked can only change at a t where an endpoint crosses an occluder edge, or where the ray
+        // sweeps over an occluder vertex. Visibility is constant between consecutive such events, so tracing a single
+        // ray per interval gives the exact answer.
         let mut events = vec![0.0, 1.0];
-
-        // P(t) = start.start + t * d, Q(t) - P(t) = w + t * k.
-        let d = start.direction();
-        let w = end.start - start.start;
-        let k = end.direction() - d;
-
         for occluder in &self.occluders {
             for edge in occluder.iter_edges() {
-                events.extend(start.intersect_t(edge).map(|(t, _)| t));
-                events.extend(end.intersect_t(edge).map(|(t, _)| t));
+                events.extend(bundle.start.intersect_t(edge).map(|(t, _)| t));
+                events.extend(bundle.end.intersect_t(edge).map(|(t, _)| t));
             }
-            for &vertex in &occluder.vertices {
-                // The line passes through the vertex when (Q(t) - P(t)) × (vertex - P(t)) = 0, and with
-                // vertex - P(t) = c - t * d this expands to a quadratic in t.
-                let c = vertex - start.start;
-                let qa = -k.perp_dot(d);
-                let qb = k.perp_dot(c) - w.perp_dot(d);
-                let qc = w.perp_dot(c);
-                events.extend(solve_quadratic(qa, qb, qc));
-            }
+            // A twisted bundle can sweep over a vertex twice, so every crossing is an event.
+            events.extend(occluder.vertices.iter().flat_map(|&vertex| bundle.offsets_at(vertex)));
         }
-
-        // This also discards the NaN / infinite roots of degenerate quadratics.
-        events.retain(|t| (0.0..=1.0).contains(t));
         events.sort_by(f32::total_cmp);
 
         events
             .windows(2)
             .filter(|interval| {
                 let t = (interval[0] + interval[1]) * 0.5;
-                self.trace(start.at(t), end.at(t))
+                self.trace(bundle.at(t))
             })
             .map(|interval| interval[1] - interval[0])
             .sum()
@@ -72,4 +68,50 @@ impl Scene {
 fn solve_quadratic(a: f32, b: f32, c: f32) -> [f32; 2] {
     let q = -0.5 * (b + b.signum() * (b * b - 4.0 * a * c).sqrt());
     [q / a, c / q]
+}
+
+// TODO: Should this support non-linear bundles? It makes stuff quite a bit messier.
+#[derive(Debug, Clone, Copy)]
+pub struct RayBundle {
+    pub start: LineSegment,
+    pub end: LineSegment,
+}
+impl RayBundle {
+    pub fn new(start: LineSegment, end: LineSegment) -> Self {
+        Self { start, end }
+    }
+    pub fn at(&self, t: f32) -> LineSegment {
+        LineSegment::new(self.start.at(t), self.end.at(t))
+    }
+    pub fn as_polygon(&self) -> Polygon {
+        Polygon::new(&[self.start.start, self.end.start, self.end.end, self.start.end])
+    }
+    // find t such that self.at(t) contains point.
+    // If the bundle twists over itself and covers the point twice, returns the smaller t.
+    pub fn offset_at(&self, point: Vec2) -> Option<f32> {
+        self.offsets_at(point).next()
+    }
+    // All t (at most two, in increasing order) such that self.at(t) contains point.
+    pub fn offsets_at(&self, point: Vec2) -> impl Iterator<Item = f32> + '_ {
+        // With P(t) = start.at(t) = start.start + t * d and Q(t) - P(t) = w + t * k, the ray passes through the point
+        // when (Q(t) - P(t)) × (point - P(t)) = 0. Writing point - P(t) = c - t * d, this expands to a quadratic in t.
+        let d = self.start.direction();
+        let w = self.end.start - self.start.start;
+        let k = self.end.direction() - d;
+        let c = point - self.start.start;
+        let mut roots = solve_quadratic(-k.perp_dot(d), k.perp_dot(c) - w.perp_dot(d), w.perp_dot(c));
+        roots.sort_by(f32::total_cmp);
+        // The NaN / infinite roots of degenerate quadratics fail the range check.
+        roots.into_iter().filter(move |t| {
+            if !(0.0..=1.0).contains(t) {
+                return false;
+            }
+            // The point is on the ray's line; check that it lies between the endpoints. A zero-length ray satisfies
+            // the quadratic for every point, so it is rejected.
+            let ray = self.at(*t);
+            let dir = ray.direction();
+            let s = (point - ray.start).dot(dir);
+            dir != Vec2::ZERO && (0.0..=dir.length_squared()).contains(&s)
+        })
+    }
 }

@@ -3,7 +3,7 @@ use std::f32::consts::TAU;
 use glam::Vec2;
 use rand::rngs::StdRng;
 use rand::{RngExt, SeedableRng};
-use twilight::scene::Scene;
+use twilight::scene::{RayBundle, Scene};
 use twilight::shape::{LineSegment, Polygon};
 
 fn random_point(rng: &mut StdRng) -> Vec2 {
@@ -33,14 +33,16 @@ fn trace_rect_matches_sampling() {
             occluders: (0..3).map(|_| random_convex_polygon(&mut rng)).collect(),
             emitters: vec![],
         };
-        let start = LineSegment::new(random_point(&mut rng), random_point(&mut rng));
-        let end = LineSegment::new(random_point(&mut rng), random_point(&mut rng));
+        let bundle = RayBundle {
+            start: LineSegment::new(random_point(&mut rng), random_point(&mut rng)),
+            end: LineSegment::new(random_point(&mut rng), random_point(&mut rng)),
+        };
 
-        let exact = scene.trace_rect(start, end);
+        let exact = scene.trace_bundle(bundle);
         let sampled = (0..samples)
             .filter(|i| {
                 let t = (*i as f32 + 0.5) / samples as f32;
-                scene.trace(start.at(t), end.at(t))
+                scene.trace(bundle.at(t))
             })
             .count() as f32
             / samples as f32;

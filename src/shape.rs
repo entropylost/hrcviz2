@@ -1,4 +1,4 @@
-use glam::Vec2;
+use glam::{Affine2, Vec2};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct LineSegment {
@@ -46,6 +46,19 @@ impl LineSegment {
         let d = self.direction();
         let e = other.direction();
         d.perp_dot(e).abs() <= EPSILON && (other.start - self.start).perp_dot(d).abs() <= EPSILON
+    }
+
+    // dir can be unnormalized
+    // probably add a time version of this to deduplicate?
+    pub fn project_along(&self, point: Vec2, dir: Vec2) -> Option<Vec2> {
+        let d = self.direction();
+        let denom = d.perp_dot(dir);
+        if denom == 0.0 {
+            return None;
+        }
+        let r = point - self.start;
+        let t = r.perp_dot(dir) / denom;
+        Some(self.at(t))
     }
 }
 impl From<LineSegment> for [Vec2; 2] {
@@ -179,6 +192,15 @@ impl Polygon {
                 (side > 0.0) != flipped
             }
         })
+    }
+    pub fn transform(&self, transform: Affine2) -> Self {
+        Self {
+            vertices: self
+                .vertices
+                .iter()
+                .map(|&vertex| transform.transform_point2(vertex))
+                .collect(),
+        }
     }
 }
 

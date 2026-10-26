@@ -1,24 +1,26 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::f32::consts::FRAC_PI_2;
 use std::rc::Rc;
 use std::sync::Mutex;
 
-use glam::{Affine2, IVec2, Vec2, Vec2Swizzles};
+use glam::{Affine2, IVec2, Vec2};
 use log::debug;
 use twilight::frustrum::{ConeFrustrum, Frustrum, merge_even, merge_odd};
 use twilight::range2d;
-use twilight::shape::Rect;
+use twilight::scene::{Emitter, RayBundle, Scene};
+use twilight::shape::{LineSegment, Polygon, Rect};
 use twilight::transmission::*;
 use wasm_bindgen::JsCast;
 use wasm_bindgen::prelude::Closure;
 use web_sys::window;
 
-use crate::draw::{DrawContext, lumaa, rgba};
+use crate::draw::{DrawContext, lumaa};
 
 pub mod draw;
 pub mod input;
 
-type RenderFn = fn(&mut DrawContext, Vec2);
+type RenderFn = fn(&mut DrawContext, &Scene);
 
 const TRANSMISSIONS: [(&str, RenderFn); 8] = [
     ("Constant1d", render::<Constant1dTransmission>),
@@ -34,115 +36,115 @@ const DEFAULT_TRANSMISSION: &str = "QuadraticProjected";
 
 static FRUSTRUM_START: Mutex<f32> = Mutex::new(2.0);
 
-fn get_transmission_recursive<T: Transmission>(
+fn get_radiance_recursive<T: Transmission>(
     frustrum: Frustrum,
-    emitter: Vec2,
-    mut ctx: Option<&mut DrawContext>,
+    scene: &Scene,
+    // mut ctx: Option<&mut DrawContext>,
     cache: &mut HashMap<Frustrum, T>,
-) -> Option<T> {
-    if let Some(&cached) = cache.get(&frustrum)
-        && ctx.is_none()
-    {
-        return Some(cached);
+) -> T {
+    if let Some(&cached) = cache.get(&frustrum) {
+        return cached;
     }
 
     if frustrum.size() > 128 {
         debug!("Frustrum too large: {:?}", frustrum);
-        return None;
+        return T::default();
     }
-    let frustrum_poly = frustrum.polygon(*FRUSTRUM_START.lock().unwrap(), 128.0 / frustrum.size() as f32);
-    if !frustrum_poly.contains_one_sided(emitter) {
-        if let Some(ref mut ctx) = ctx {
-            ctx.polygon(&frustrum_poly.vertices)
-                .fill(rgba(1.0, 0.0, 0.0, 0.1))
-                .stroke("red");
-        }
-        return None;
+    let frustrum_start = *FRUSTRUM_START.lock().unwrap();
+    let frustrum_poly = frustrum.polygon(frustrum_start, 128.0 / frustrum.size() as f32);
+    if scene
+        .emitters
+        .iter()
+        .all(|emitter| !frustrum_poly.contains_one_sided(emitter.position))
+    {
+        return T::default();
     }
 
-    let result = if frustrum.parity() == 0 {
-        let next = merge_even(frustrum);
-        let contributions = next
-            .into_iter()
-            .filter_map(|(f, w)| {
-                let transmission = get_transmission_recursive(f, emitter, ctx.as_deref_mut(), cache);
-                transmission.map(|t| t.reproject(f, frustrum) * w)
-            })
-            .collect::<Vec<_>>();
-        if contributions.is_empty() {
-            if let Some(ref mut ctx) = ctx {
-                ctx.polygon(&frustrum.polygon(1.0, 2.0).vertices)
-                    .fill(rgba(1.0, 1.0, 0.0, 0.1))
-                    .stroke("yellow");
-            }
-            T::new(frustrum, emitter)
-        } else {
-            // assert_eq!(contributions.len(), 1, "normal overlap fail");
-            contributions.into_iter().reduce(|a, b| a + b).unwrap()
-        }
+    let frustrums = if frustrum.parity() == 0 {
+        vec![merge_even(frustrum)]
     } else {
-        let contributions = [false, true].map(|far| {
-            let next = merge_odd(frustrum, far);
+        vec![merge_odd(frustrum, false), merge_odd(frustrum, true)]
+    };
+    let contributions = frustrums
+        .into_iter()
+        .map(|next| {
             let contributions = next
                 .into_iter()
-                .filter_map(|(f, w)| {
-                    let transmission = get_transmission_recursive(f, emitter, ctx.as_deref_mut(), cache);
-                    transmission.map(|t| t.reproject(f, frustrum) * w)
+                .map(|(f, w)| {
+                    let near = frustrum.at(frustrum_start);
+                    let next_near = f.at(frustrum_start);
+                    let projected_near = LineSegment::new(
+                        near.project_along(next_near.start, frustrum.ray_dir(next_near.start))
+                            .unwrap(),
+                        near.project_along(next_near.end, frustrum.ray_dir(next_near.end))
+                            .unwrap(),
+                    );
+                    let bundle = RayBundle {
+                        start: projected_near,
+                        end: next_near,
+                    };
+                    let mut emitted_radiance = T::default();
+                    for emitter in &scene.emitters {
+                        if bundle.as_polygon().contains_one_sided(emitter.position)
+                            && scene.trace(bundle.at(bundle.offset_at(emitter.position).unwrap()))
+                        {
+                            emitted_radiance =
+                                emitted_radiance + T::new(frustrum, emitter.position) * emitter.brightness;
+                        }
+                    }
+                    let transmittance = scene.trace_bundle(bundle);
+                    let next_radiance = get_radiance_recursive(f, scene, cache);
+                    (next_radiance.reproject(f, frustrum) * transmittance + emitted_radiance) * w
                 })
                 .collect::<Vec<_>>();
-            if contributions.is_empty() {
-                // only happens if far
-                if let Some(ref mut ctx) = ctx {
-                    ctx.polygon(&frustrum.polygon(1.0, 3.0).vertices)
-                        .fill(rgba(0.0, 1.0, 1.0, 0.1))
-                        .stroke("cyan");
-                }
-                T::new(frustrum, emitter)
-            } else {
-                // if far {
-                //     assert_eq!(contributions.len(), 1, "far overlap fail");
-                // }
-                // because overlap possible with near
-                contributions.into_iter().reduce(|a, b| a + b).unwrap()
-            }
-        });
+            // if far {
+            //     assert_eq!(contributions.len(), 1, "far overlap fail");
+            // }
+            // because overlap possible with near
+            contributions.into_iter().reduce(|a, b| a + b).unwrap()
+        })
+        .collect::<Vec<_>>();
+    let result = if frustrum.parity() == 0 {
+        contributions[0]
+    } else {
         contributions[0] * 0.5 + contributions[1] * 0.5
     };
 
     cache.insert(frustrum, result);
-    Some(result)
+    result
 }
 
-fn render<T: Transmission>(ctx: &mut DrawContext, emitter: Vec2) {
+fn render<T: Transmission>(ctx: &mut DrawContext, scene: &Scene) {
     let mut caches = HashMap::<_, HashMap<Frustrum, T>>::new();
 
-    for cell in range2d(IVec2::splat(1), IVec2::splat(128)) {
-        let offset = emitter - cell.as_vec2();
-        let facing = offset.x.abs() > offset.y.abs();
-        let (mut probe, mut emitter) = if facing {
-            (cell, emitter)
-        } else {
-            (cell.yx(), emitter.yx())
-        };
-        let flip = probe.x as f32 > emitter.x;
-        if flip {
-            probe.x = 128 - probe.x;
-            emitter.x = 128.0 - emitter.x;
-        }
+    let rotate_transform = Affine2::from_translation(Vec2::splat(64.0))
+        * Affine2::from_angle(FRAC_PI_2)
+        * Affine2::from_translation(Vec2::splat(-64.0));
+    let transforms = [
+        Affine2::IDENTITY,
+        rotate_transform,
+        rotate_transform * rotate_transform,
+        rotate_transform * rotate_transform * rotate_transform,
+    ];
+    let scenes = transforms.map(|t| scene.transform(t));
 
-        for i in [-1, 0] {
-            let frustrum = Frustrum::Cone(ConeFrustrum {
-                focus: probe,
-                size: 1,
-                index: i,
-            });
-            let transmission =
-                get_transmission_recursive(frustrum, emitter, None, caches.entry((facing, flip)).or_default());
-            if let Some(transmission) = transmission {
-                ctx.rect(Rect::center_size(cell.as_vec2(), Vec2::splat(1.0)))
-                    .fill(lumaa(6.0 * transmission.value(), 1.0));
+    for cell in range2d(IVec2::splat(1), IVec2::splat(128)) {
+        let mut total_radiance = 0.0;
+        for (k, t) in transforms.iter().enumerate() {
+            let probe = t.transform_point2(cell.as_vec2());
+            assert!((probe - probe.round()).length() < 0.001, "{:?}", probe);
+            for i in [-1, 0] {
+                let frustrum = Frustrum::Cone(ConeFrustrum {
+                    focus: probe.round().as_ivec2(),
+                    size: 1,
+                    index: i,
+                });
+                let radiance = get_radiance_recursive(frustrum, &scenes[k], caches.entry(k).or_default());
+                total_radiance += radiance.value();
             }
         }
+        ctx.rect(Rect::center_size(cell.as_vec2(), Vec2::splat(1.0)))
+            .fill(lumaa(total_radiance, 1.0));
     }
 }
 
@@ -184,7 +186,7 @@ fn run() -> Option<()> {
 
     let mut ctx = ctx.transform(Affine2::from_scale(Vec2::splat(8.0)));
 
-    let mut emitter = Vec2::new(40.3, 20.23);
+    let mut emitter = Vec2::new(40.3, 65.23);
 
     anim_loop(move || {
         let window_width = window().unwrap().inner_width().unwrap().as_f64().unwrap() as u32;
@@ -205,10 +207,26 @@ fn run() -> Option<()> {
         }
 
         let (_, render) = TRANSMISSIONS[selector.selected_index().max(0) as usize];
-        render(&mut ctx, emitter + Vec2::new(0.0013, 0.0017));
+        let scene = Scene {
+            occluders: vec![Polygon::new(&[
+                Vec2::new(60.01, 60.03),
+                Vec2::new(56.53, 80.15),
+                Vec2::new(63.51, 70.09),
+            ])],
+            emitters: vec![Emitter {
+                brightness: 6.0,
+                position: emitter + Vec2::new(0.0013, 0.0017),
+            }],
+        };
+        render(&mut ctx, &scene);
 
         ctx.responsive_point(&mut emitter);
-        ctx.circle(emitter, 0.4).fill("red");
+        for emitter in &scene.emitters {
+            ctx.circle(emitter.position, 0.4).fill("red");
+        }
+        for occluder in &scene.occluders {
+            ctx.polygon(&occluder.vertices).stroke("red");
+        }
 
         ctx.finish();
     });

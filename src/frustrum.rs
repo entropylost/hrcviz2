@@ -28,6 +28,12 @@ impl Frustrum {
         let end = self.at(max);
         Polygon::new(&[start.start, end.start, end.end, start.end])
     }
+    pub fn ray_dir(&self, pos: Vec2) -> Vec2 {
+        match self {
+            Frustrum::Linear(f) => f.dir(),
+            Frustrum::Cone(f) => pos - f.focus.as_vec2(),
+        }
+    }
     pub fn at(&self, t: f32) -> LineSegment {
         match self {
             Frustrum::Linear(f) => f.at(t),
