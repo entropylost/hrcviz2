@@ -187,7 +187,18 @@ fn run() -> Option<()> {
 
     let mut ctx = ctx.transform(Affine2::from_scale(Vec2::splat(8.0)));
 
-    let mut emitter = Vec2::new(40.3, 65.23);
+    let mut scene = Scene {
+        occluders: vec![Polygon::new(&[
+            Vec2::new(60.0, 60.0),
+            Vec2::new(56.5, 80.0),
+            Vec2::new(63.5, 70.0),
+        ])],
+        emitters: vec![Emitter {
+            brightness: 6.0,
+            position: Vec2::new(40.0, 65.0),
+        }],
+    };
+    let disambiguation_offset = Vec2::new(0.0013, 0.0017);
 
     anim_loop(move || {
         let window_width = window().unwrap().inner_width().unwrap().as_f64().unwrap() as u32;
@@ -208,25 +219,18 @@ fn run() -> Option<()> {
         }
 
         let (_, render) = TRANSMISSIONS[selector.selected_index().max(0) as usize];
-        let scene = Scene {
-            occluders: vec![Polygon::new(&[
-                Vec2::new(60.01, 60.03),
-                Vec2::new(56.53, 80.15),
-                Vec2::new(63.51, 70.09),
-            ])],
-            emitters: vec![Emitter {
-                brightness: 6.0,
-                position: emitter + Vec2::new(0.0013, 0.0017),
-            }],
-        };
-        render(&mut ctx, &scene);
+        let offset_scene = scene.transform(Affine2::from_translation(disambiguation_offset));
+        render(&mut ctx, &offset_scene);
 
-        ctx.responsive_point(&mut emitter);
-        for emitter in &scene.emitters {
+        for emitter in &mut scene.emitters {
+            ctx.responsive_point(&mut emitter.position);
             ctx.circle(emitter.position, 0.4).fill("red");
         }
-        for occluder in &scene.occluders {
+        for occluder in &mut scene.occluders {
             ctx.polygon(&occluder.vertices).stroke("red");
+            for vertex in &mut occluder.vertices {
+                ctx.responsive_point(vertex);
+            }
         }
 
         ctx.finish();

@@ -1,9 +1,6 @@
 use glam::{Affine2, Vec2};
 
-use crate::{
-    shape::{LineSegment, Polygon},
-    transmission::Transmission,
-};
+use crate::shape::{LineSegment, Polygon};
 
 #[derive(Debug, Clone, Copy)]
 pub struct Emitter {
