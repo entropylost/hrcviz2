@@ -1,0 +1,48 @@
+:root {
+  --background: #222;
+  --line: #333;
+}
+
+html {
+  background: var(--background);
+}
+
+body {
+  color: #eee;
+  font-family: "FiraCode NF";
+  margin: 0;
+  background-size: 16px 16px;
+  background-image: radial-gradient(circle, #333 1px, var(--background) 1px);
+  background-position: -8px -8px;
+  /*background-image:
+      linear-gradient(to right, var(--line) 2px, transparent 1px),
+      linear-gradient(to bottom, var(--line) 2px, transparent 1px);
+  background-position: -1px -1px;*/
+  position: relative;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+}
+
+#controls {
+  position: absolute;
+  display: inline-block;
+  top: 8px;
+  right: 8px;
+  padding: 4px;
+  line-height: 2em;
+  text-align: right;
+}
+
+select,
+input {
+  font-family: inherit;
+  color: inherit;
+  background: var(--background);
+  border: 1px solid #555;
+  padding: 4px;
+}
+
+input[type=number] {
+  width: 4em;
+}
