@@ -49,14 +49,11 @@ impl MouseStateInner {
         !self.pressed(button) && self.last_pressed(button)
     }
     pub fn step_frame(&self) {
-        self.last_pressed_buttons.store(
-            self.pressed_buttons.load(Ordering::Relaxed),
-            Ordering::Relaxed,
-        );
+        self.last_pressed_buttons
+            .store(self.pressed_buttons.load(Ordering::Relaxed), Ordering::Relaxed);
     }
     fn apply_buttons(&self, buttons: u16) {
-        self.pressed_buttons
-            .store(buttons as u32, Ordering::Relaxed);
+        self.pressed_buttons.store(buttons as u32, Ordering::Relaxed);
     }
 }
 
@@ -79,8 +76,7 @@ pub fn register_input_handlers(el: Element) -> MouseState {
     let closure = Closure::<dyn FnMut(MouseEvent)>::new({
         let state = state.clone();
         move |event: MouseEvent| {
-            *state.pos.lock().unwrap() =
-                Vec2::new(event.offset_x() as f32, event.offset_y() as f32);
+            *state.pos.lock().unwrap() = Vec2::new(event.offset_x() as f32, event.offset_y() as f32);
             state.apply_buttons(event.buttons());
         }
     })

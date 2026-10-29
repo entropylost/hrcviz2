@@ -11,10 +11,10 @@ pub trait Transmission: Copy + Add<Output = Self> + Mul<f32, Output = Self> + De
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
-pub struct Constant1dTransmission {
+pub struct Constant1d {
     pub value: f32,
 }
-impl Transmission for Constant1dTransmission {
+impl Transmission for Constant1d {
     fn value(self) -> f32 {
         self.value
     }
@@ -27,7 +27,7 @@ impl Transmission for Constant1dTransmission {
         self
     }
 }
-impl Add for Constant1dTransmission {
+impl Add for Constant1d {
     type Output = Self;
     fn add(self, other: Self) -> Self {
         Self {
@@ -35,7 +35,7 @@ impl Add for Constant1dTransmission {
         }
     }
 }
-impl Mul<f32> for Constant1dTransmission {
+impl Mul<f32> for Constant1d {
     type Output = Self;
     fn mul(self, rhs: f32) -> Self {
         Self {
@@ -45,10 +45,10 @@ impl Mul<f32> for Constant1dTransmission {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
-pub struct ConstantTransmission {
+pub struct Constant {
     pub value: f32,
 }
-impl Transmission for ConstantTransmission {
+impl Transmission for Constant {
     fn value(self) -> f32 {
         self.value
     }
@@ -61,7 +61,7 @@ impl Transmission for ConstantTransmission {
         self
     }
 }
-impl Add for ConstantTransmission {
+impl Add for Constant {
     type Output = Self;
     fn add(self, other: Self) -> Self {
         Self {
@@ -69,7 +69,7 @@ impl Add for ConstantTransmission {
         }
     }
 }
-impl Mul<f32> for ConstantTransmission {
+impl Mul<f32> for Constant {
     type Output = Self;
     fn mul(self, rhs: f32) -> Self {
         Self {
@@ -79,13 +79,13 @@ impl Mul<f32> for ConstantTransmission {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
-pub struct QuadraticTransmission {
+pub struct Quadratic {
     pub value: f32,
     // along frustrum direction; we don't need moments along perpendicular direction due to small cone size
     // currently just using both derivatives at the focus point
     pub moments: [f32; 2],
 }
-impl Transmission for QuadraticTransmission {
+impl Transmission for Quadratic {
     fn value(self) -> f32 {
         self.value
     }
@@ -110,19 +110,16 @@ impl Transmission for QuadraticTransmission {
         }
     }
 }
-impl Add for QuadraticTransmission {
+impl Add for Quadratic {
     type Output = Self;
     fn add(self, other: Self) -> Self {
         Self {
             value: self.value + other.value,
-            moments: [
-                self.moments[0] + other.moments[0],
-                self.moments[1] + other.moments[1],
-            ],
+            moments: [self.moments[0] + other.moments[0], self.moments[1] + other.moments[1]],
         }
     }
 }
-impl Mul<f32> for QuadraticTransmission {
+impl Mul<f32> for Quadratic {
     type Output = Self;
     fn mul(self, rhs: f32) -> Self {
         Self {
@@ -133,12 +130,12 @@ impl Mul<f32> for QuadraticTransmission {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
-pub struct QuadraticProjectedTransmission {
+pub struct QuadraticProjected {
     pub value: f32,
     // along the x-axis
     pub moments: [f32; 2],
 }
-impl Transmission for QuadraticProjectedTransmission {
+impl Transmission for QuadraticProjected {
     fn value(self) -> f32 {
         self.value
     }
@@ -165,19 +162,16 @@ impl Transmission for QuadraticProjectedTransmission {
         }
     }
 }
-impl Add for QuadraticProjectedTransmission {
+impl Add for QuadraticProjected {
     type Output = Self;
     fn add(self, other: Self) -> Self {
         Self {
             value: self.value + other.value,
-            moments: [
-                self.moments[0] + other.moments[0],
-                self.moments[1] + other.moments[1],
-            ],
+            moments: [self.moments[0] + other.moments[0], self.moments[1] + other.moments[1]],
         }
     }
 }
-impl Mul<f32> for QuadraticProjectedTransmission {
+impl Mul<f32> for QuadraticProjected {
     type Output = Self;
     fn mul(self, rhs: f32) -> Self {
         Self {
@@ -188,12 +182,12 @@ impl Mul<f32> for QuadraticProjectedTransmission {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
-pub struct LinearProjectedTransmission {
+pub struct LinearProjected {
     // approximate, at focus (also doing projected)
     pub value: f32,
     pub moment: f32,
 }
-impl Transmission for LinearProjectedTransmission {
+impl Transmission for LinearProjected {
     fn value(self) -> f32 {
         self.value
     }
@@ -219,7 +213,7 @@ impl Transmission for LinearProjectedTransmission {
         }
     }
 }
-impl Add for LinearProjectedTransmission {
+impl Add for LinearProjected {
     type Output = Self;
     fn add(self, other: Self) -> Self {
         Self {
@@ -228,7 +222,7 @@ impl Add for LinearProjectedTransmission {
         }
     }
 }
-impl Mul<f32> for LinearProjectedTransmission {
+impl Mul<f32> for LinearProjected {
     type Output = Self;
     fn mul(self, rhs: f32) -> Self {
         Self {
@@ -239,12 +233,12 @@ impl Mul<f32> for LinearProjectedTransmission {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
-pub struct GradientTransmission {
+pub struct Gradient {
     pub value: f32,
     // spatial derivatives in both directions
     pub gradient: Vec2,
 }
-impl Transmission for GradientTransmission {
+impl Transmission for Gradient {
     fn value(self) -> f32 {
         self.value
     }
@@ -265,7 +259,7 @@ impl Transmission for GradientTransmission {
         }
     }
 }
-impl Add for GradientTransmission {
+impl Add for Gradient {
     type Output = Self;
     fn add(self, other: Self) -> Self {
         Self {
@@ -274,7 +268,7 @@ impl Add for GradientTransmission {
         }
     }
 }
-impl Mul<f32> for GradientTransmission {
+impl Mul<f32> for Gradient {
     type Output = Self;
     fn mul(self, rhs: f32) -> Self {
         Self {
@@ -285,7 +279,7 @@ impl Mul<f32> for GradientTransmission {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct HessianTransmission {
+pub struct Hessian {
     pub value: f32,
     // spatial derivatives in both directions
     pub gradient: Vec2,
@@ -293,7 +287,7 @@ pub struct HessianTransmission {
     pub hessian: Mat2,
 }
 // Mat2::default() is the identity, so Default can't be derived.
-impl Default for HessianTransmission {
+impl Default for Hessian {
     fn default() -> Self {
         Self {
             value: 0.0,
@@ -302,7 +296,7 @@ impl Default for HessianTransmission {
         }
     }
 }
-impl Transmission for HessianTransmission {
+impl Transmission for Hessian {
     fn value(self) -> f32 {
         self.value
     }
@@ -329,7 +323,7 @@ impl Transmission for HessianTransmission {
         }
     }
 }
-impl Add for HessianTransmission {
+impl Add for Hessian {
     type Output = Self;
     fn add(self, other: Self) -> Self {
         Self {
@@ -339,7 +333,7 @@ impl Add for HessianTransmission {
         }
     }
 }
-impl Mul<f32> for HessianTransmission {
+impl Mul<f32> for Hessian {
     type Output = Self;
     fn mul(self, rhs: f32) -> Self {
         Self {
@@ -351,12 +345,12 @@ impl Mul<f32> for HessianTransmission {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
-pub struct AveragedLinearTransmission {
+pub struct AveragedLinear {
     // approximate, at focus (also doing projected)
     pub value: f32,
     pub slope: f32,
 }
-impl Transmission for AveragedLinearTransmission {
+impl Transmission for AveragedLinear {
     fn value(self) -> f32 {
         self.value
     }
@@ -387,7 +381,7 @@ impl Transmission for AveragedLinearTransmission {
         }
     }
 }
-impl Add for AveragedLinearTransmission {
+impl Add for AveragedLinear {
     type Output = Self;
     fn add(self, other: Self) -> Self {
         Self {
@@ -396,7 +390,7 @@ impl Add for AveragedLinearTransmission {
         }
     }
 }
-impl Mul<f32> for AveragedLinearTransmission {
+impl Mul<f32> for AveragedLinear {
     type Output = Self;
     fn mul(self, rhs: f32) -> Self {
         Self {

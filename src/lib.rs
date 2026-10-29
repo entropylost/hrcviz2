@@ -5,6 +5,7 @@ pub fn range2d(start: IVec2, end: IVec2) -> impl Iterator<Item = IVec2> {
 }
 
 pub mod frustrum;
+pub mod render;
 pub mod scene;
 pub mod shape;
 pub mod transmission;
